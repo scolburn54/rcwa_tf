@@ -13,7 +13,6 @@ def fftshift_tf(matrix):
     '''
     
     m = int(matrix.shape[0])
-    #shiftAmt = int((m - 1) / 2)
     shiftAmt = int(np.floor(m / 2.0))
     shifted_once = tf.manip.roll(matrix, shift=shiftAmt, axis=0) 
     return tf.manip.roll(shifted_once, shift=shiftAmt, axis=1)
