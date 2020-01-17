@@ -20,18 +20,19 @@ def fftshift_tf(matrix):
 def convmat(A, P, Q):
     '''
     This function computes a convolution matrix for a real space matrix `A` that represents
-    either a relative permittivity or permeability distribution in a layer.
+    either a relative permittivity or permeability distribution for a set of layers.
     Args:
-        A: A `tf.Tensor` of dtype `complex` and shape `(Nx, Ny)` specifying real space values on a Cartesian grid.
+        A: A `tf.Tensor` of dtype `complex` and shape `(layers, Nx, Ny)` specifying real space values on a Cartesian grid.
         P: A positive and odd `int` specifying the number of spatial harmonics along `T1`.
         Q: A positive and odd `int` specifying the number of spatial harmonics along `T2`.
     Returns:
-        A `tf.Tensor` of dtype `complex` and shape `(P * Q, P * Q)`
-        representing a convolution matrix based on `A`.   
+        A `tf.Tensor` of dtype `complex` and shape `(layers, P * Q, P * Q)`
+        representing a stack of convolution matrices based on `A`.   
     '''
     
     # Determine the shape of A
-    Nx, Ny = A.shape
+    Nlayers, Nx, Ny = A.shape
+    Nlayers = int(Nlayers)
     Nx = int(Nx)
     Ny = int(Ny)
 
@@ -41,33 +42,47 @@ def convmat(A, P, Q):
     q_max = np.floor(P / 2.0)
     p = np.linspace(-p_max, p_max, P) # indices along T1
     q = np.linspace(-q_max, q_max, Q) # indices along T2
-
-    # Compute Fourier coefficients of A
-    A = fftshift_tf(tf.fft2d(A)) / (Nx * Ny)
     
     # Compute array indices of center harmonic
     p0 = int(np.floor(Nx / 2))
     q0 = int(np.floor(Ny / 2))
 
-    # Build the convolution matrix
-    firstCoeff = True
-    for qrow in range(Q):
-        for prow in range(P):
-            for qcol in range(Q):
-                for pcol in range(P):
-                    pfft = int(p[prow] - p[pcol])
-                    qfft = int(q[qrow] - q[qcol])
-                    
-                    # Sequentially concatenate Fourier coefficients
-                    value = tf.reshape(A[p0 + pfft, q0 + qfft], shape = (1,))
-                    if firstCoeff:
-                        firstCoeff = False
-                        C = value
-                    else:
-                        C = tf.concat([C, value], axis = 0)
-    
-    # Reshape the vector of Fourier coefficients into matrix form
-    return tf.reshape(C, shape = (P * Q, P * Q))
+    # Build the convolution matrices
+    firstLayer = True
+    for l in range(Nlayers):
+        
+        # Compute Fourier coefficients
+        layer = A[l, :, :]
+        layer = fftshift_tf(tf.fft2d(layer)) / (Nx * Ny)
+        
+        # Build the matrix
+        firstCoeff = True
+        for qrow in range(Q):
+            for prow in range(P):
+                for qcol in range(Q):
+                    for pcol in range(P):
+                        pfft = int(p[prow] - p[pcol])
+                        qfft = int(q[qrow] - q[qcol])
+
+                        # Sequentially concatenate Fourier coefficients
+                        value = tf.reshape(layer[p0 + pfft, q0 + qfft], shape = (1,))
+                        if firstCoeff:
+                            firstCoeff = False
+                            C = value
+                        else:
+                            C = tf.concat([C, value], axis = 0)
+                            
+        # Reshape the vector of Fourier coefficients into matrix form       
+        layerMatrix = tf.reshape(C, shape = (P * Q, P * Q))
+        
+        # Stack the convolution matrices for each layer
+        if firstLayer:
+            firstLayer = False
+            matrixStack = layerMatrix
+        else:
+            matrixStack = tf.stack([matrixStack, layerMatrix], axis = 0)
+            
+    return matrixStack
 
 def redheffer_star_product(SA, SB):
     '''
