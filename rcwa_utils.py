@@ -13,7 +13,8 @@ def fftshift_tf(matrix):
     '''
     
     m = int(matrix.shape[0])
-    shiftAmt = int((m - 1) / 2)
+    #shiftAmt = int((m - 1) / 2)
+    shiftAmt = int(np.floor(m / 2.0))
     shifted_once = tf.manip.roll(matrix, shift=shiftAmt, axis=0) 
     return tf.manip.roll(shifted_once, shift=shiftAmt, axis=1)
     
@@ -53,10 +54,8 @@ def convmat(A, P, Q):
     firstCoeff = True
     for qrow in range(Q):
         for prow in range(P):
-            row = int((qrow - 1) * P + prow)
             for qcol in range(Q):
                 for pcol in range(P):
-                    col = int((qcol - 1) * P + pcol)
                     pfft = int(p[prow] - p[pcol])
                     qfft = int(q[qrow] - q[qcol])
                     
