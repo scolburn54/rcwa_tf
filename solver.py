@@ -1,0 +1,453 @@
+import tensorflow as tf
+import numpy as np
+import rcwa_utils
+import tensor_utils
+
+def initialize_params():
+  
+  # Define the `params` dictionary.
+  params = dict({})
+
+  # Units and tensor dimensions.
+  params['nanometers'] = 1E-9
+  params['degrees'] = np.pi / 180
+  params['batchSize'] = 1
+  params['pixelsX'] = 1
+  params['pixelsY'] = 1
+  params['Nlay'] = 2
+
+  # Batch parameters.
+  batch_shape = (params['batchSize'], 1, 1, 1, 1, 1)
+  pol_shape = (params['batchSize'], 1, 1, 1)
+  params['lam0'] = 632 * params['nanometers'] * tf.ones(shape = batch_shape, dtype = tf.float32) # free space wavelength
+  params['theta'] = 0 * params['degrees'] * tf.ones(shape = batch_shape, dtype = tf.float32)
+  params['phi'] = 0 * params['degrees'] * tf.ones(shape = batch_shape, dtype = tf.float32)
+  params['pte'] = 1 * tf.ones(shape = pol_shape, dtype = tf.complex64)
+  params['ptm'] = 0 * tf.ones(shape = pol_shape, dtype = tf.complex64)
+
+  # Device parameters
+  params['ur1'] = 1.0 # permeability in reflection region
+  params['er1'] = 1.0 # permittivity in reflection region
+  params['ur2'] = 1.0 # permeability in transmission region
+  params['er2'] = 1.0 # permittivity in transmission region
+  params['urd'] = 1.0 # permeability of device
+  params['erd'] = 4.0 # permittivity of device
+  params['urs'] = 1.0 # permeability of substrate
+  params['ers'] = 2.25 # permittivity of substrate
+  params['Lx'] = 0.7 * 632 * params['nanometers'] # period along x
+  params['Ly'] = params['Lx'] # period along y
+  length_shape = (1, 1, 1, params['Nlay'], 1, 1)
+  params['L'] = 632 * params['nanometers'] * tf.ones(shape = length_shape, dtype = tf.complex64)
+
+  # RCWA parameters
+  params['Nx'] = 512 # number of point along x in real-space grid
+  params['Ny'] = int(np.round(params['Nx'] * params['Ly'] / params['Lx'])) # number of point along y in real-space grid
+  params['PQ'] = [3, 3] # number of spatial harmonics along x and y
+
+  # Coefficient for the argument of tf.math.sigmoid() when generating
+  # permittivity distributions with geometric parameters
+  params['sigmoid_coeff'] = 1E16
+
+  return params
+
+def generate_cylindrical_nanoposts(duty, params):
+
+  # Retrieve simulation size parameters.
+  batchSize = params['batchSize']
+  pixelsX = params['pixelsX']
+  pixelsY = params['pixelsY']
+  Nlay = params['Nlay']
+  Nx = params['Nx']
+  Ny = params['Ny']
+
+  # Initialize relative permeability
+  materials_shape = (batchSize, pixelsX, pixelsY, Nlay, Nx, Ny)
+  UR = params['urd'] * np.ones(materials_shape)
+
+  # Define the cartesian cross section
+  dx = params['Lx'] / Nx # grid resolution along x
+  dy = params['Ly'] / Ny # grid resolution along y
+  xa = np.linspace(0, Nx - 1, Nx) * dx # x axis array
+  xa = xa - np.mean(xa) # center x axis at zero
+  ya = np.linspace(0, Ny - 1, Ny) * dy # y axis vector
+  ya = ya - np.mean(ya) # center y axis at zero
+  [y_mesh, x_mesh] = np.meshgrid(ya,xa)
+
+  # Convert to tensors and expand and tile to match the simulation shape.
+  y_mesh = tf.convert_to_tensor(y_mesh, dtype = tf.float32)
+  y_mesh = y_mesh[tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, :, :]
+  y_mesh = tf.tile(y_mesh, multiples = (batchSize, pixelsX, pixelsY, 1, 1, 1))
+  x_mesh = tf.convert_to_tensor(x_mesh, dtype = tf.float32)
+  x_mesh = x_mesh[tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, :, :]
+  x_mesh = tf.tile(x_mesh, multiples = (batchSize, pixelsX, pixelsY, 1, 1, 1))
+
+  # Build device layer
+  a = tf.clip_by_value(duty, clip_value_min = 0.0, clip_value_max = 1.0)
+  radius = 0.5 * params['Ly'] * a
+  sigmoid_arg = (radius ** 2 - x_mesh ** 2 - y_mesh ** 2)
+  ER_t = tf.math.sigmoid(params['sigmoid_coeff'] * sigmoid_arg)
+  ER_t = 1 + (params['erd'] - 1) * ER_t
+
+  # Build substrate and concatenate along the layers dimension
+  device_shape = (batchSize, pixelsX, pixelsY, 1, Nx, Ny)
+  ER_substrate = params['ers'] * tf.ones(device_shape, dtype = tf.float32)
+  ER_t = tf.concat(values = [ER_t, ER_substrate], axis = 3)
+
+  # Cast to complex for subsequent calculations
+  ER_t = tf.cast(ER_t, dtype = tf.complex64)
+  UR_t = tf.convert_to_tensor(UR, dtype = tf.float32)
+  UR_t = tf.cast(UR_t, dtype = tf.complex64)
+
+  return ER_t, UR_t
+
+def simulate(ER_t, UR_t, params = initialize_params()):
+
+  # Extract commonly used parameters from the `params` dictionary
+  batchSize = params['batchSize']
+  pixelsX = params['pixelsX']
+  pixelsY = params['pixelsY']
+  Nlay = params['Nlay']
+  PQ = params['PQ']
+
+  ### Step 3: Build convolution matrices for the permittivity and permeability ###
+  ERC = rcwa_utils.convmat(ER_t, PQ[0], PQ[1])
+  URC = rcwa_utils.convmat(UR_t, PQ[0], PQ[1])
+
+  ### Step 4: Wave vector expansion ###
+  I = np.eye(np.prod(PQ), dtype = complex)
+  I = tf.convert_to_tensor(I, dtype = tf.complex64)
+  I = I[tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, :, :]
+  I = tf.tile(I, multiples = (batchSize, pixelsX, pixelsY, Nlay, 1, 1))
+  Z = np.zeros((np.prod(PQ), np.prod(PQ)), dtype = complex)
+  Z = tf.convert_to_tensor(Z, dtype = tf.complex64)
+  Z = Z[tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, :, :]
+  Z = tf.tile(Z, multiples = (batchSize, pixelsX, pixelsY, Nlay, 1, 1))
+  n1 = np.sqrt(params['er1'])
+  n2 = np.sqrt(params['er2'])
+
+  k0 = tf.cast(2 * np.pi / params['lam0'], dtype = tf.complex64)
+  kinc_x0 = tf.cast(n1 * tf.sin(params['theta']) * tf.cos(params['phi']), dtype = tf.complex64)
+  kinc_y0 = tf.cast(n1 * tf.sin(params['theta']) * tf.sin(params['phi']), dtype = tf.complex64)
+  kinc_z0 = tf.cast(n1 * tf.cos(params['theta']), dtype = tf.complex64)
+  kinc_z0 = kinc_z0[:, :, :, 0, :, :]
+
+  # Unit vectors
+  T1 = np.transpose([2 * np.pi / params['Lx'], 0])
+  T2 = np.transpose([0, 2 * np.pi / params['Ly']])
+  p_max = np.floor(PQ[0] / 2.0)
+  q_max = np.floor(PQ[1] / 2.0)
+  p = tf.constant(np.linspace(-p_max, p_max, PQ[0]), dtype = tf.complex64) # indices along T1
+  p = p[tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, :, tf.newaxis]
+  p = tf.tile(p, multiples = (1, pixelsX, pixelsY, Nlay, 1, 1))
+  q = tf.constant(np.linspace(-q_max, q_max, PQ[1]), dtype = tf.complex64) # indices along T2
+  q = q[tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, :]
+  q = tf.tile(q, multiples = (1, pixelsX, pixelsY, Nlay, 1, 1))
+
+  # Build Kx and Ky matrices
+  kx_zeros = tf.zeros(3, dtype = tf.complex64)
+  kx_zeros = kx_zeros[tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, :]
+  ky_zeros = tf.zeros(3, dtype = tf.complex64)
+  ky_zeros = ky_zeros[tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, :, tf.newaxis]
+  kx = kinc_x0 - 2 * np.pi * p / (k0 * params['Lx']) - kx_zeros
+  ky = kinc_y0 - 2 * np.pi * q / (k0 * params['Ly']) - ky_zeros
+
+  kx_T = tf.transpose(kx, perm = [0, 1, 2, 3, 5, 4])
+  KX = tf.reshape(kx_T, shape = (batchSize, pixelsX, pixelsY, Nlay, np.prod(PQ)))
+  KX = tf.linalg.diag(KX)
+
+  ky_T = tf.transpose(ky, perm = [0, 1, 2, 3, 5, 4])
+  KY = tf.reshape(ky_T, shape = (batchSize, pixelsX, pixelsY, Nlay, np.prod(PQ)))
+  KY = tf.linalg.diag(KY)
+
+  KZref = tf.linalg.matmul(tf.math.conj(params['ur1'] * I), tf.math.conj(params['er1'] * I))
+  KZref = KZref - tf.linalg.matmul(KX, KX) - tf.linalg.matmul(KY, KY)
+  KZref = tf.math.sqrt(KZref)
+  KZref = -tf.math.conj(KZref)
+
+  KZtrn = tf.linalg.matmul(tf.math.conj(params['ur2'] * I), tf.math.conj(params['er2'] * I))
+  KZtrn = KZtrn - tf.linalg.matmul(KX, KX) - tf.linalg.matmul(KY, KY)
+  KZtrn = tf.math.sqrt(KZtrn)
+  KZtrn = tf.math.conj(KZtrn)
+
+  ### Step 5: Free Space ###
+  KZ = I - tf.linalg.matmul(KX, KX) - tf.linalg.matmul(KY, KY)
+  KZ = tf.math.sqrt(KZ)
+  KZ = tf.math.conj(KZ)
+
+  Q_free_00 = tf.linalg.matmul(KX, KY)
+  Q_free_01 = I - tf.linalg.matmul(KX, KX)
+  Q_free_10 = tf.linalg.matmul(KY, KY) - I
+  Q_free_11 = -tf.linalg.matmul(KY, KX)
+  Q_free_row0 = tf.concat([Q_free_00, Q_free_01], axis = 5)
+  Q_free_row1 = tf.concat([Q_free_10, Q_free_11], axis = 5)
+  Q_free = tf.concat([Q_free_row0, Q_free_row1], axis = 4)
+
+  W0_row0 = tf.concat([I, Z], axis = 5)
+  W0_row1 = tf.concat([Z, I], axis = 5)
+  W0 = tf.concat([W0_row0, W0_row1], axis = 4)
+
+  LAM_free_row0 = tf.concat([1j * KZ, Z], axis = 5)
+  LAM_free_row1 = tf.concat([Z, 1j * KZ], axis = 5)
+  LAM_free = tf.concat([LAM_free_row0, LAM_free_row1], axis = 4)
+
+  V0 = tf.linalg.matmul(Q_free, tf.linalg.inv(LAM_free))
+
+  ### Step 6: Initialize Global Scattering Matrix
+  SG = dict({})
+  SG_S11 = tf.zeros(shape = (2 * np.prod(PQ), 2 * np.prod(PQ)), dtype = tf.complex64)
+  SG['S11'] = tensor_utils.expand_and_tile_tf(SG_S11, batchSize, pixelsX, pixelsY)
+
+  SG_S12 = tf.eye(num_rows = 2 * np.prod(PQ), dtype = tf.complex64)
+  SG['S12'] = tensor_utils.expand_and_tile_tf(SG_S12, batchSize, pixelsX, pixelsY)
+
+  SG_S21 = tf.eye(num_rows = 2 * np.prod(PQ), dtype = tf.complex64)
+  SG['S21'] = tensor_utils.expand_and_tile_tf(SG_S21, batchSize, pixelsX, pixelsY)
+
+  SG_S22 = tf.zeros(shape = (2 * np.prod(PQ), 2 * np.prod(PQ)), dtype = tf.complex64)
+  SG['S22'] = tensor_utils.expand_and_tile_tf(SG_S22, batchSize, pixelsX, pixelsY)
+
+  ### Step 7: Calculate eigenmodes
+
+  # Build the eigenvalue problem
+  P_00 = tf.linalg.matmul(KX, tf.linalg.inv(ERC))
+  P_00 = tf.linalg.matmul(P_00, KY)
+
+  P_01 = tf.linalg.matmul(KX, tf.linalg.inv(ERC))
+  P_01 = tf.linalg.matmul(P_01, KX)
+  P_01 = URC - P_01
+
+  P_10 = tf.linalg.matmul(KY, tf.linalg.inv(ERC))
+  P_10 = tf.linalg.matmul(P_10, KY) - URC
+
+  P_11 = tf.linalg.matmul(-KY, tf.linalg.inv(ERC))
+  P_11 = tf.linalg.matmul(P_11, KX)
+
+  P_row0 = tf.concat([P_00, P_01], axis = 5)
+  P_row1 = tf.concat([P_10, P_11], axis = 5)
+  P = tf.concat([P_row0, P_row1], axis = 4)
+
+  Q_00 = tf.linalg.matmul(KX, tf.linalg.inv(URC))
+  Q_00 = tf.linalg.matmul(Q_00, KY)
+
+  Q_01 = tf.linalg.matmul(KX, tf.linalg.inv(URC))
+  Q_01 = tf.linalg.matmul(Q_01, KX)
+  Q_01 = ERC - Q_01
+
+  Q_10 = tf.linalg.matmul(KY, tf.linalg.inv(URC))
+  Q_10 = tf.linalg.matmul(Q_10, KY) - ERC
+
+  Q_11 = tf.linalg.matmul(-KY, tf.linalg.inv(URC))
+  Q_11 = tf.linalg.matmul(Q_11, KX)
+
+  Q_row0 = tf.concat([Q_00, Q_01], axis = 5)
+  Q_row1 = tf.concat([Q_10, Q_11], axis = 5)
+  Q = tf.concat([Q_row0, Q_row1], axis = 4)
+
+  # Compute eignmodes for the layers in each pixel for the whole batch
+  OMEGA_SQ = tf.linalg.matmul(P, Q)
+  LAM, W = tensor_utils.eig_general(OMEGA_SQ)
+  LAM = tf.sqrt(LAM)
+  LAM = tf.linalg.diag(LAM)
+
+  V = tf.linalg.matmul(Q, W)
+  V = tf.linalg.matmul(V, tf.linalg.inv(LAM))
+
+  # Scattering matrices for the layers in each pixel for the whole batch
+  W_inv = tf.linalg.inv(W)
+  V_inv = tf.linalg.inv(V)
+  A = tf.linalg.matmul(W_inv, W0) + tf.linalg.matmul(V_inv, V0)
+  B = tf.linalg.matmul(W_inv, W0) - tf.linalg.matmul(V_inv, V0)
+  X = tf.linalg.expm(-LAM * k0 * params['L'])
+
+  S = dict({})
+  A_inv = tf.linalg.inv(A)
+  S11_left = tf.linalg.matmul(X, B)
+  S11_left = tf.linalg.matmul(S11_left, A_inv)
+  S11_left = tf.linalg.matmul(S11_left, X)
+  S11_left = tf.linalg.matmul(S11_left, B)
+  S11_left = A - S11_left
+  S11_left = tf.linalg.inv(S11_left)
+
+  S11_right = tf.linalg.matmul(X, B)
+  S11_right = tf.linalg.matmul(S11_right, A_inv)
+  S11_right = tf.linalg.matmul(S11_right, X)
+  S11_right = tf.linalg.matmul(S11_right, A)
+  S11_right = S11_right - B
+  S['S11'] = tf.linalg.matmul(S11_left, S11_right)
+
+  S12_right = tf.linalg.matmul(B, A_inv)
+  S12_right = tf.linalg.matmul(S12_right, B)
+  S12_right = A - S12_right
+  S12_left = tf.linalg.matmul(S11_left, X)
+  S['S12'] = tf.linalg.matmul(S12_left, S12_right)
+
+  S['S21'] = S['S12']
+  S['S22'] = S['S11']
+
+  # Update the global scattering matrices
+  for l in range(Nlay):
+    S_layer = dict({})
+    S_layer['S11'] = S['S11'][:, :, :, l, :, :]
+    S_layer['S12'] = S['S12'][:, :, :, l, :, :]
+    S_layer['S21'] = S['S21'][:, :, :, l, :, :]
+    S_layer['S22'] = S['S22'][:, :, :, l, :, :]
+    SG = rcwa_utils.redheffer_star_product(SG, S_layer)
+
+  ### Step 8: Reflection side ###
+  # Eliminate layer dimension for tensors as they are unchanging on this dimension
+  KX = KX[:, :, :, 0, :, :]
+  KY = KY[:, :, :, 0, :, :]
+  KZref = KZref[:, :, :, 0, :, :]
+  KZtrn = KZtrn[:, :, :, 0, :, :]
+  Z = Z[:, :, :, 0, :, :]
+  I = I[:, :, :, 0, :, :]
+  W0 = W0[:, :, :, 0, :, :]
+  V0 = V0[:, :, :, 0, :, :]
+
+  Q_ref_00 = tf.linalg.matmul(KX, KY)
+  Q_ref_01 = params['ur1'] * params['er1'] * I - tf.linalg.matmul(KX, KX)
+  Q_ref_10 = tf.linalg.matmul(KY, KY) - params['ur1'] * params['er1'] * I
+  Q_ref_11 = -tf.linalg.matmul(KY, KX)
+  Q_ref_row0 = tf.concat([Q_ref_00, Q_ref_01], axis = 4)
+  Q_ref_row1 = tf.concat([Q_ref_10, Q_ref_11], axis = 4)
+  Q_ref = tf.concat([Q_ref_row0, Q_ref_row1], axis = 3)
+
+  W_ref_row0 = tf.concat([I, Z], axis = 4)
+  W_ref_row1 = tf.concat([Z, I], axis = 4)
+  W_ref = tf.concat([W_ref_row0, W_ref_row1], axis = 3)
+
+  LAM_ref_row0 = tf.concat([-1j * KZref, Z], axis = 4)
+  LAM_ref_row1 = tf.concat([Z, -1j * KZref], axis = 4)
+  LAM_ref = tf.concat([LAM_ref_row0, LAM_ref_row1], axis = 3)
+
+  V_ref = tf.linalg.matmul(Q_ref, tf.linalg.inv(LAM_ref))
+
+  W0_inv = tf.linalg.inv(W0)
+  V0_inv = tf.linalg.inv(V0)
+  A_ref = tf.linalg.matmul(W0_inv, W_ref) + tf.linalg.matmul(V0_inv, V_ref)
+  A_ref_inv = tf.linalg.inv(A_ref)
+  B_ref = tf.linalg.matmul(W0_inv, W_ref) - tf.linalg.matmul(V0_inv, V_ref)
+
+  SR = dict({})
+  SR['S11'] = tf.linalg.matmul(-A_ref_inv, B_ref)
+  SR['S12'] = 2 * A_ref_inv
+  SR_S21 = tf.linalg.matmul(B_ref, A_ref_inv)
+  SR_S21 = tf.linalg.matmul(SR_S21, B_ref)
+  SR['S21'] = 0.5 * (A_ref - SR_S21)
+  SR['S22'] = tf.linalg.matmul(B_ref, A_ref_inv)
+
+  ### Step 9: Transmission side ###
+  Q_trn_00 = tf.linalg.matmul(KX, KY)
+  Q_trn_01 = params['ur2'] * params['er2'] * I - tf.linalg.matmul(KX, KX)
+  Q_trn_10 = tf.linalg.matmul(KY, KY) - params['ur2'] * params['er2'] * I
+  Q_trn_11 = -tf.linalg.matmul(KY, KX)
+  Q_trn_row0 = tf.concat([Q_trn_00, Q_trn_01], axis = 4)
+  Q_trn_row1 = tf.concat([Q_trn_10, Q_trn_11], axis = 4)
+  Q_trn = tf.concat([Q_trn_row0, Q_trn_row1], axis = 3)
+
+  W_trn_row0 = tf.concat([I, Z], axis = 4)
+  W_trn_row1 = tf.concat([Z, I], axis = 4)
+  W_trn = tf.concat([W_trn_row0, W_trn_row1], axis = 3)
+
+  LAM_trn_row0 = tf.concat([1j * KZtrn, Z], axis = 4)
+  LAM_trn_row1 = tf.concat([Z, 1j * KZtrn], axis = 4)
+  LAM_trn = tf.concat([LAM_trn_row0, LAM_trn_row1], axis = 3)
+
+  V_trn = tf.linalg.matmul(Q_trn, tf.linalg.inv(LAM_trn))
+
+  W0_inv = tf.linalg.inv(W0)
+  V0_inv = tf.linalg.inv(V0)
+  A_trn = tf.linalg.matmul(W0_inv, W_trn) + tf.linalg.matmul(V0_inv, V_trn)
+  A_trn_inv = tf.linalg.inv(A_trn)
+  B_trn = tf.linalg.matmul(W0_inv, W_trn) - tf.linalg.matmul(V0_inv, V_trn)
+
+  ST = dict({})
+  ST['S11'] = tf.linalg.matmul(B_trn, A_trn_inv)
+  ST_S12 = tf.linalg.matmul(B_trn, A_trn_inv)
+  ST_S12 = tf.linalg.matmul(ST_S12, B_trn)
+  ST['S12'] = 0.5 * (A_trn - ST_S12)
+  ST['S21'] = 2 * A_trn_inv
+  ST['S22'] = tf.linalg.matmul(-A_trn_inv, B_trn)
+
+  ### Step 10: Compute global scattering matrix
+  SG = rcwa_utils.redheffer_star_product(SR, SG)
+  SG = rcwa_utils.redheffer_star_product(SG, ST)
+
+  ### Step 11: Compute source parameters
+
+  # Compute mode coefficients of the source
+  delta = np.zeros((batchSize, pixelsX, pixelsY, np.prod(PQ)))
+  delta[:, :, :, int(np.round(np.prod(PQ) / 2.0))] = 1
+  #n_hat = np.zeros((batchSize, pixelsX, pixelsY, 3))
+  #n_hat[:, :, :, 0] = -1
+  #n_hat = tf.convert_to_tensor(n_hat, dtype = tf.complex64)
+
+  ate = np.zeros((batchSize, pixelsX, pixelsY, 3))
+  ate[:, :, :, 1] = 1
+  ate = tf.convert_to_tensor(ate, dtype = tf.complex64)
+
+  atm = np.zeros((batchSize, pixelsX, pixelsY, 3))
+  atm[:, :, :, 0] = 1
+  atm = tf.convert_to_tensor(atm, dtype = tf.complex64)
+
+  EP = params['pte'] * ate + params['ptm'] * atm
+
+  esrc_x = EP[:, :, :, 0] * delta
+  esrc_y = EP[:, :, :, 1] * delta
+  esrc = tf.concat([esrc_x, esrc_y], axis = 3)
+  esrc = esrc[:, :, :, :, tf.newaxis]
+
+  W_ref_inv = tf.linalg.inv(W_ref)
+
+  ### Step 12: Compute reflected and transmitted fields ###
+  csrc = tf.linalg.matmul(W_ref_inv, esrc)
+
+  # Compute tranmission and reflection mode coefficients
+  cref = tf.linalg.matmul(SG['S11'], csrc)
+  ctrn = tf.linalg.matmul(SG['S21'], csrc)
+  eref = tf.linalg.matmul(W_ref, cref)
+  etrn = tf.linalg.matmul(W_trn, ctrn)
+
+  rx = eref[:, :, :, 0 : np.prod(PQ), :]
+  ry = eref[:, :, :, np.prod(PQ) : 2 * np.prod(PQ), :]
+  tx = etrn[:, :, :, 0 : np.prod(PQ), :]
+  ty = etrn[:, :, :, np.prod(PQ) : 2 * np.prod(PQ), :]
+
+  # Compute longitudinal components
+  KZref_inv = tf.linalg.inv(KZref)
+  KZtrn_inv = tf.linalg.inv(KZtrn)
+  rz = tf.linalg.matmul(KX, rx) + tf.linalg.matmul(KY, ry)
+  rz = tf.linalg.matmul(-KZref_inv, rz)
+  tz = tf.linalg.matmul(KX, tx) + tf.linalg.matmul(KY, ty)
+  tz = tf.linalg.matmul(-KZtrn_inv, tz)
+
+  ### Step 13: Compute diffraction efficiences ###
+  R2 = tf.abs(rx) ** 2 + tf.abs(ry) ** 2 + tf.abs(rz) ** 2
+  R = tf.math.real(-KZref / params['ur1']) / tf.math.real(kinc_z0 / params['ur1'])
+  R = tf.linalg.matmul(R, R2)
+  R = tf.reshape(R, shape = (batchSize, pixelsX, pixelsY, PQ[0], PQ[1]))
+  REF = tf.math.reduce_sum(R, axis = [3, 4])
+
+  T2 = tf.abs(tx) ** 2 + tf.abs(ty) ** 2 + tf.abs(tz) ** 2
+  T = tf.math.real(KZtrn / params['ur2']) / tf.math.real(kinc_z0 / params['ur2'])
+  T = tf.linalg.matmul(T, T2)
+  T = tf.reshape(T, shape = (batchSize, pixelsX, pixelsY, PQ[0], PQ[1]))
+  TRN = tf.math.reduce_sum(T, axis = [3, 4])
+
+  outputs = dict({})
+  outputs['rx'] = rx
+  outputs['ry'] = ry
+  outputs['rz'] = rz
+  outputs['R'] = R
+  outputs['REF'] = REF
+  outputs['tx'] = tx
+  outputs['ty'] = ty
+  outputs['tz'] = tz
+  outputs['T'] = T
+  outputs['TRN'] = TRN
+
+  return outputs
+
+
+
+
