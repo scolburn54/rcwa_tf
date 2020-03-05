@@ -48,6 +48,10 @@ def initialize_params():
   # permittivity distributions with geometric parameters
   params['sigmoid_coeff'] = 1E16
 
+  # Allowed permittivity range
+  params['eps_min'] = 1.0
+  params['eps_max'] = 100.0
+
   return params
 
 def generate_cylindrical_nanoposts(duty, params):
@@ -83,6 +87,8 @@ def generate_cylindrical_nanoposts(duty, params):
 
   # Build device layer
   a = tf.clip_by_value(duty, clip_value_min = 0.0, clip_value_max = 1.0)
+  a = a[:, :, :, tf.newaxis, tf.newaxis, tf.newaxis]
+  a = tf.tile(a, multiples = (1, 1, 1, 1, Nx, Ny))
   radius = 0.5 * params['Ly'] * a
   sigmoid_arg = (radius ** 2 - x_mesh ** 2 - y_mesh ** 2)
   ER_t = tf.math.sigmoid(params['sigmoid_coeff'] * sigmoid_arg)
@@ -99,6 +105,100 @@ def generate_cylindrical_nanoposts(duty, params):
   UR_t = tf.cast(UR_t, dtype = tf.complex64)
 
   return ER_t, UR_t
+
+def generate_arbitrary_epsilon(eps_r, params):
+
+  # Retrieve simulation size parameters.
+  batchSize = params['batchSize']
+  pixelsX = params['pixelsX']
+  pixelsY = params['pixelsY']
+  Nlay = params['Nlay']
+  Nx = params['Nx']
+  Ny = params['Ny']
+
+  # Initialize relative permeability
+  materials_shape = (batchSize, pixelsX, pixelsY, Nlay, Nx, Ny)
+  UR = params['urd'] * np.ones(materials_shape)
+
+  # Set the permittivity
+  ER_t = tf.clip_by_value(eps_r, clip_value_min = params['eps_min'], clip_value_max = params['eps_max'])
+
+  # Build substrate and concatenate along the layers dimension
+  device_shape = (batchSize, pixelsX, pixelsY, 1, Nx, Ny)
+  ER_substrate = params['ers'] * tf.ones(device_shape, dtype = tf.float32)
+  ER_t = tf.concat(values = [ER_t, ER_substrate], axis = 3)
+
+  # Cast to complex for subsequent calculations
+  ER_t = tf.cast(ER_t, dtype = tf.complex64)
+  UR_t = tf.convert_to_tensor(UR, dtype = tf.float32)
+  UR_t = tf.cast(UR_t, dtype = tf.complex64)
+
+  return ER_t, UR_t
+
+def make_propagator(params):
+  batchSize = params['batchSize']
+  pixelsX = params['pixelsX']
+  pixelsY = params['pixelsY']
+
+  # Propagator definition
+  k = 2 * np.pi / params['lam0'][:, 0, 0, 0, 0, 0]
+  k = k[:, np.newaxis, np.newaxis]
+  k = tf.tile(k, multiples = (1, 2 * pixelsX - 1, 2 * pixelsY - 1))
+  k = tf.cast(k, dtype = tf.complex64)  
+  k_xlist_pos = 2 * np.pi * np.linspace(0, 1 / (2 * params['Lx']), pixelsX)  
+  front = k_xlist_pos[-(pixelsX - 1):]
+  front = -front[::-1]
+  k_xlist = np.hstack((front, k_xlist_pos))
+  k_x = np.kron(k_xlist, np.ones((2 * pixelsX - 1, 1)))
+  k_x = k_x[np.newaxis, :, :]
+  k_y = np.transpose(k_x, axes = [0, 2, 1])
+  k_x = tf.convert_to_tensor(k_x, dtype = tf.complex64)
+  k_x = tf.tile(k_x, multiples = (batchSize, 1, 1))
+  k_y = tf.convert_to_tensor(k_y, dtype = tf.complex64)
+  k_y = tf.tile(k_y, multiples = (batchSize, 1, 1))
+  k_z_arg = tf.square(k) - (tf.square(k_x) + tf.square(k_y))
+  k_z = tf.sqrt(k_z_arg)
+  propagator_arg = 1j * k_z * params['f']
+  propagator = tf.exp(propagator_arg)
+
+  # Limit transfer function bandwidth to prevent aliasing
+  kx_limit = (((1 / (pixelsX * params['Lx'])) * params['f']) ** 2 + 1) ** (-0.5)
+  kx_limit = kx_limit / params['lam0'][:, 0, 0, 0, 0, 0]
+  kx_limit = 2 * np.pi * kx_limit
+  kx_limit = tf.cast(kx_limit, dtype = tf.complex64)
+  ky_limit = kx_limit
+  kx_limit = kx_limit[:, tf.newaxis, tf.newaxis]
+  ky_limit = ky_limit[:, tf.newaxis, tf.newaxis]
+
+  ellipse_kx = (tf.square(k_x / kx_limit) + tf.square(k_y / k)).numpy() <= 1
+  ellipse_ky = (tf.square(k_x / k) + tf.square(k_y / ky_limit)).numpy() <= 1
+  propagator = propagator * ellipse_kx * ellipse_ky
+
+  return propagator
+
+def propagate(field, params):
+  # Field has dimensions of (batchSize, pixelsX, pixelsY)
+  # Each element corresponds to the zero order planewave component on the output
+
+  propagator = params['propagator']
+
+  # Zero pad `field` to be a stack of 2n-1 x 2n-1 matrices
+  # Put batch parameter last for padding then transpose back
+  _, _, n = field.shape
+  field = tf.transpose(field, perm = [1, 2, 0])
+  field = tf.image.resize_with_crop_or_pad(field, 2 * n - 1, 2 * n - 1)
+  field = tf.transpose(field, perm = [2, 0, 1])
+
+  field_freq = tf.signal.fftshift(tf.signal.fft2d(field), axes = (1, 2))
+  field_filtered = tf.signal.ifftshift(field_freq * propagator, axes = (1, 2))
+  out = tf.signal.ifft2d(field_filtered)
+
+  # Crop back down to n x n matrices
+  out = tf.transpose(out, perm = [1, 2, 0])
+  out = tf.image.resize_with_crop_or_pad(out, n, n)
+  out = tf.transpose(out, perm = [2, 0, 1])
+
+  return out
 
 def simulate(ER_t, UR_t, params = initialize_params()):
 
@@ -391,9 +491,13 @@ def simulate(ER_t, UR_t, params = initialize_params()):
   atm = tf.convert_to_tensor(atm, dtype = tf.complex64)
 
   EP = params['pte'] * ate + params['ptm'] * atm
+  EP_x = EP[:, :, :, 0]
+  EP_x = EP_x[:, :, :, tf.newaxis]
+  EP_y = EP[:, :, :, 1]
+  EP_y = EP_y[:, :, :, tf.newaxis]
 
-  esrc_x = EP[:, :, :, 0] * delta
-  esrc_y = EP[:, :, :, 1] * delta
+  esrc_x = EP_x * delta
+  esrc_y = EP_y * delta
   esrc = tf.concat([esrc_x, esrc_y], axis = 3)
   esrc = esrc[:, :, :, :, tf.newaxis]
 
