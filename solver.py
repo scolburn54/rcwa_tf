@@ -478,18 +478,42 @@ def simulate(ER_t, UR_t, params = initialize_params()):
   # Compute mode coefficients of the source
   delta = np.zeros((batchSize, pixelsX, pixelsY, np.prod(PQ)))
   delta[:, :, :, int(np.round(np.prod(PQ) / 2.0))] = 1
-  #n_hat = np.zeros((batchSize, pixelsX, pixelsY, 3))
-  #n_hat[:, :, :, 0] = -1
-  #n_hat = tf.convert_to_tensor(n_hat, dtype = tf.complex64)
 
-  ate = np.zeros((batchSize, pixelsX, pixelsY, 3))
-  ate[:, :, :, 1] = 1
-  ate = tf.convert_to_tensor(ate, dtype = tf.complex64)
+  # Incident wavevector
+  kinc_x0_pol = tf.math.real(kinc_x0[:, :, :, 0, 0])
+  kinc_y0_pol = tf.math.real(kinc_y0[:, :, :, 0, 0])
+  kinc_z0_pol = tf.math.real(kinc_z0[:, :, :, 0])
+  kinc_pol = tf.concat([kinc_x0_pol, kinc_y0_pol, kinc_z0_pol], axis = 3)
 
-  atm = np.zeros((batchSize, pixelsX, pixelsY, 3))
-  atm[:, :, :, 0] = 1
-  atm = tf.convert_to_tensor(atm, dtype = tf.complex64)
+  # Calculate TE and TM polarization unit vectors
+  firstPol = True
+  for pol in range(batchSize):
+    if (kinc_pol[pol, 0, 0, 0] == 0.0 and kinc_pol[pol, 0, 0, 1] == 0.0):
+      ate_pol = np.zeros((1, pixelsX, pixelsY, 3))
+      ate_pol[:, :, :, 1] = 1
+      ate_pol = tf.convert_to_tensor(ate_pol, dtype = tf.float32)
+    else:
+      # Calculation of ate for oblique incidence
+      n_hat = np.zeros((1, pixelsX, pixelsY, 3))
+      n_hat[:, :, :, 0] = 1
+      n_hat = tf.convert_to_tensor(n_hat, dtype = tf.float32)
+      kinc_pol_iter = kinc_pol[pol, :, :, :]
+      kinc_pol_iter = kinc_pol_iter[tf.newaxis, :, :, :]
+      ate_cross = tf.linalg.cross(n_hat, kinc_pol_iter)
+      ate_pol =  ate_cross / tf.norm(ate_cross, axis = 3, keepdims = True)
 
+    if firstPol:
+      ate = ate_pol
+      firstPol = False
+    else:
+      ate = tf.concat([ate, ate_pol], axis = 0)
+
+  atm_cross = tf.linalg.cross(kinc_pol, ate)
+  atm = atm_cross / tf.norm(atm_cross, axis = 3, keepdims = True)
+  ate = tf.cast(ate, dtype = tf.complex64)
+  atm = tf.cast(atm, dtype = tf.complex64)
+
+  # Decompose the TE and TM polarization into x and y components
   EP = params['pte'] * ate + params['ptm'] * atm
   EP_x = EP[:, :, :, 0]
   EP_x = EP_x[:, :, :, tf.newaxis]
