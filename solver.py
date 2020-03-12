@@ -200,6 +200,28 @@ def propagate(field, params):
 
   return out
 
+def define_input_fields(params):
+
+  # Define the cartesian cross section
+  pixelsX = params['pixelsX']
+  pixelsY = params['pixelsY']
+  dx = params['Lx'] # grid resolution along x
+  dy = params['Ly'] # grid resolution along y
+  xa = np.linspace(0, pixelsX - 1, pixelsX) * dx # x axis array
+  xa = xa - np.mean(xa) # center x axis at zero
+  ya = np.linspace(0, pixelsY - 1, pixelsY) * dy # y axis vector
+  ya = ya - np.mean(ya) # center y axis at zero
+  [y_mesh, x_mesh] = np.meshgrid(ya, xa)
+  x_mesh = x_mesh[np.newaxis, :, :]
+  y_mesh = y_mesh[np.newaxis, :, :]
+  lam_phase_test = params['lam0'][:, 0, 0, 0, 0, 0]
+  lam_phase_test = lam_phase_test[:, tf.newaxis, tf.newaxis]
+  theta_phase_test = params['theta'][:, 0, 0, 0, 0, 0]
+  theta_phase_test = theta_phase_test[:, tf.newaxis, tf.newaxis]
+  phase_def = 2 * np.pi * np.sin(theta_phase_test) * x_mesh / lam_phase_test
+  phase_def = tf.cast(phase_def, dtype = tf.complex64)
+  return tf.exp(1j * phase_def)
+
 def simulate(ER_t, UR_t, params = initialize_params()):
 
   # Extract commonly used parameters from the `params` dictionary
