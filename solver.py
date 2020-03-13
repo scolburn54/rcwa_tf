@@ -266,9 +266,9 @@ def simulate(ER_t, UR_t, params = initialize_params()):
   q = tf.tile(q, multiples = (1, pixelsX, pixelsY, Nlay, 1, 1))
 
   # Build Kx and Ky matrices
-  kx_zeros = tf.zeros(3, dtype = tf.complex64)
+  kx_zeros = tf.zeros(PQ[0], dtype = tf.complex64)
   kx_zeros = kx_zeros[tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, :]
-  ky_zeros = tf.zeros(3, dtype = tf.complex64)
+  ky_zeros = tf.zeros(PQ[1], dtype = tf.complex64)
   ky_zeros = ky_zeros[tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, :, tf.newaxis]
   kx = kinc_x0 - 2 * np.pi * p / (k0 * params['Lx']) - kx_zeros
   ky = kinc_y0 - 2 * np.pi * q / (k0 * params['Ly']) - ky_zeros
