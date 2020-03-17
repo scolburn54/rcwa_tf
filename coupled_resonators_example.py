@@ -176,13 +176,10 @@ for i in range(N):
 
 print('Loss: ' + str(loss[N]))
 
-epsilon_r_final, _ = generate_coupled_cylindrical_resonators(r_x_var, r_y_var, params)
-
 # Simulate the system.
 outputs = solver.simulate(epsilon_r_initial, mu_r_initial, params)
 field = outputs['ty'][:, :, :, np.prod(params['PQ']) // 2, 0]
 focal_plane_initial = solver.propagate(field, params)
-
 
 ER_t, UR_t = generate_coupled_cylindrical_resonators(r_x_var, r_y_var, params)
 
@@ -195,3 +192,9 @@ focal_plane = solver.propagate(field, params)
 np.savetxt('loss.txt', loss)
 np.save('focal_plane_initial.npy', focal_plane_initial)
 np.save('focal_plane_opt.npy', focal_plane)
+np.save('r_x_initial.npy', r_x_initial)
+np.save('r_y_initial.npy', r_y_initial)
+np.save('r_x_final.npy', r_x_var)
+np.save('r_y_final.npy', r_y_var)
+np.save('epsilon_r_initial', epsilon_r_initial)
+np.save('epsilon_r_final', ER_t)
