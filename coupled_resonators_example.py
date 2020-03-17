@@ -26,7 +26,6 @@ def focal_spot():
 
   # Generate permitivitty and permeability distributions.
   global params
-  #ER_t, UR_t = solver.generate_arbitrary_epsilon(eps_var, params)
   ER_t, UR_t = generate_coupled_cylindrical_resonators(r_x_var, r_y_var, params)
 
   # Simulate the system.
@@ -34,10 +33,6 @@ def focal_spot():
   field = outputs['ty'][:, :, :, np.prod(params['PQ']) // 2, 0]
   focal_plane = solver.propagate(params['input'] * field, params)
   f1 = tf.abs(focal_plane[0, params['pixelsX'] // 2, params['pixelsX'] // 2])
-  #f2 = tf.abs(focal_plane[1, params['pixelsX'] // 2, params['pixelsX'] // 2])
-  #f3 = tf.abs(focal_plane[2, params['pixelsX'] // 2, params['pixelsX'] // 2])
-  #f4 = tf.abs(focal_plane[3, params['pixelsX'] // 2, params['pixelsX'] // 2])
-  #loss = -f1 * f2 * f3 * f4
   loss = -f1
 
   return loss
@@ -181,18 +176,13 @@ for i in range(N):
 
 print('Loss: ' + str(loss[N]))
 
-plt.imshow(np.abs(epsilon_r_initial[0, 1, 0, 0, :, :]))
-plt.colorbar()
-plt.title('Initial Unit Cell Permittivity')
-
 epsilon_r_final, _ = generate_coupled_cylindrical_resonators(r_x_var, r_y_var, params)
 
 # Simulate the system.
 outputs = solver.simulate(epsilon_r_initial, mu_r_initial, params)
 field = outputs['ty'][:, :, :, np.prod(params['PQ']) // 2, 0]
-focal_plane = solver.propagate(field, params)
-plt.imshow(np.abs(focal_plane[0, :, :]) ** 2)
-plt.colorbar()
+focal_plane_initial = solver.propagate(field, params)
+
 
 ER_t, UR_t = generate_coupled_cylindrical_resonators(r_x_var, r_y_var, params)
 
@@ -200,3 +190,8 @@ ER_t, UR_t = generate_coupled_cylindrical_resonators(r_x_var, r_y_var, params)
 outputs = solver.simulate(ER_t, UR_t, params)
 field = outputs['ty'][:, :, :, np.prod(params['PQ']) // 2, 0]
 focal_plane = solver.propagate(field, params)
+
+# Save data
+np.savetxt('loss.txt', loss)
+np.save('focal_plane_initial.npy', focal_plane_initial)
+np.save('focal_plane_opt.npy', focal_plane)
