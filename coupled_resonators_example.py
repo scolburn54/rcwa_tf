@@ -3,6 +3,7 @@ import numpy as np
 import rcwa_utils
 import tensor_utils
 import solver
+import time
 
 def total_reflected_power():
 
@@ -109,14 +110,15 @@ def generate_coupled_cylindrical_resonators(r_x, r_y, params):
   return ER_t, UR_t
 
 # Initialize global params dictionary and overwrite default values.
+setup_t0 = time.time()
 params = solver.initialize_params()
 params['batchSize'] = 1
 params['erd'] = 6.76
 params['ers'] = 2.25
 params['PQ'] = [3, 3]
-params['f'] = 15E-6
+params['f'] = 200E-6
 batchSize = params['batchSize']
-num_pixels = 31
+num_pixels = 45
 pixelsX = num_pixels
 pixelsY = num_pixels
 params['pixelsX'] = pixelsX
@@ -157,12 +159,13 @@ r_y_var = tf.Variable(r_y_initial, dtype = tf.float32)
 epsilon_r_initial, mu_r_initial = generate_coupled_cylindrical_resonators(r_x_var, r_y_var, params)
 
 # Number of optimization iterations.
-N = 200
+N = 5
 
 # Define an optimizer and data to be stored.
 opt = tf.keras.optimizers.Adam(learning_rate = 5.0)
 loss = np.zeros(N + 1)
 duty = np.zeros(N + 1)
+setup_time = time.time() - setup_t0
 
 # Compute initial loss and duty cycle.
 loss[0] = focal_spot().numpy()
@@ -170,10 +173,14 @@ print('Loss: ' + str(loss[0]))
 print('\nOptimizing...')
 
 # Optimize.
+t = time.time()
 for i in range(N):
   opt.minimize(focal_spot, var_list = [r_x_var, r_y_var])
   loss[i + 1] = focal_spot().numpy()
 
+elapsed_time = time.time() - t
+print('Setup Time: ' + str(setup_time))
+print('Elapsed Time: ' + str(elapsed_time))
 print('Loss: ' + str(loss[N]))
 
 # Simulate the system.
