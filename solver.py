@@ -52,6 +52,9 @@ def initialize_params():
   params['eps_min'] = 1.0
   params['eps_max'] = 100.0
 
+  # Upsampling for Fourier optics propagation
+  params['upsample'] = 1
+
   return params
 
 def generate_cylindrical_nanoposts(duty, params):
@@ -139,17 +142,19 @@ def make_propagator(params):
   batchSize = params['batchSize']
   pixelsX = params['pixelsX']
   pixelsY = params['pixelsY']
+  upsample = params['upsample']
 
   # Propagator definition
   k = 2 * np.pi / params['lam0'][:, 0, 0, 0, 0, 0]
   k = k[:, np.newaxis, np.newaxis]
-  k = tf.tile(k, multiples = (1, 2 * pixelsX - 1, 2 * pixelsY - 1))
+  samp = params['upsample'] * pixelsX
+  k = tf.tile(k, multiples = (1, 2 * samp - 1, 2 * samp - 1))
   k = tf.cast(k, dtype = tf.complex64)  
-  k_xlist_pos = 2 * np.pi * np.linspace(0, 1 / (2 * params['Lx']), pixelsX)  
-  front = k_xlist_pos[-(pixelsX - 1):]
+  k_xlist_pos = 2 * np.pi * np.linspace(0, 1 / (2 *  params['Lx'] / params['upsample']), samp)  
+  front = k_xlist_pos[-(samp - 1):]
   front = -front[::-1]
   k_xlist = np.hstack((front, k_xlist_pos))
-  k_x = np.kron(k_xlist, np.ones((2 * pixelsX - 1, 1)))
+  k_x = np.kron(k_xlist, np.ones((2 * samp - 1, 1)))
   k_x = k_x[np.newaxis, :, :]
   k_y = np.transpose(k_x, axes = [0, 2, 1])
   k_x = tf.convert_to_tensor(k_x, dtype = tf.complex64)
@@ -162,9 +167,7 @@ def make_propagator(params):
   propagator = tf.exp(propagator_arg)
 
   # Limit transfer function bandwidth to prevent aliasing
-  kx_limit = (((1 / (pixelsX * params['Lx'])) * params['f']) ** 2 + 1) ** (-0.5)
-  kx_limit = kx_limit / params['lam0'][:, 0, 0, 0, 0, 0]
-  kx_limit = 2 * np.pi * kx_limit
+  kx_limit = 2 * np.pi * (((1 / (pixelsX * params['Lx'])) * params['f']) ** 2 + 1) ** (-0.5) / params['lam0'][:, 0, 0, 0, 0, 0]
   kx_limit = tf.cast(kx_limit, dtype = tf.complex64)
   ky_limit = kx_limit
   kx_limit = kx_limit[:, tf.newaxis, tf.newaxis]
@@ -184,8 +187,14 @@ def propagate(field, params):
 
   # Zero pad `field` to be a stack of 2n-1 x 2n-1 matrices
   # Put batch parameter last for padding then transpose back
-  _, _, n = field.shape
+  _, _, m = field.shape
+  n = params['upsample'] * m
   field = tf.transpose(field, perm = [1, 2, 0])
+  field_real = tf.math.real(field)
+  field_imag = tf.math.imag(field)
+  field_real = tf.image.resize(field_real, [n, n], method = 'nearest')
+  field_imag = tf.image.resize(field_imag, [n, n], method = 'nearest')
+  field = tf.cast(field_real, dtype = tf.complex64) + 1j * tf.cast(field_imag, dtype = tf.complex64)
   field = tf.image.resize_with_crop_or_pad(field, 2 * n - 1, 2 * n - 1)
   field = tf.transpose(field, perm = [2, 0, 1])
 
