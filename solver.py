@@ -57,6 +57,77 @@ def initialize_params():
 
   return params
 
+def generate_coupled_cylindrical_resonators(r_x, r_y, params):
+
+  # Retrieve simulation size parameters.
+  batchSize = params['batchSize']
+  pixelsX = params['pixelsX']
+  pixelsY = params['pixelsY']
+  Nlay = params['Nlay']
+  Nx = params['Nx']
+  Ny = params['Ny']
+  Lx = params['Lx']
+  Ly = params['Ly']
+
+  # Initialize relative permeability
+  materials_shape = (batchSize, pixelsX, pixelsY, Nlay, Nx, Ny)
+  UR = params['urd'] * np.ones(materials_shape)
+
+  # Define the cartesian cross section
+  dx = Lx / Nx # grid resolution along x
+  dy = Ly / Ny # grid resolution along y
+  xa = np.linspace(0, Nx - 1, Nx) * dx # x axis array
+  xa = xa - np.mean(xa) # center x axis at zero
+  ya = np.linspace(0, Ny - 1, Ny) * dy # y axis vector
+  ya = ya - np.mean(ya) # center y axis at zero
+  [y_mesh, x_mesh] = np.meshgrid(ya,xa)
+
+  # Convert to tensors and expand and tile to match the simulation shape.
+  y_mesh = tf.convert_to_tensor(y_mesh, dtype = tf.float32)
+  y_mesh = y_mesh[tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, :, :]
+  y_mesh = tf.tile(y_mesh, multiples = (batchSize, pixelsX, pixelsY, 1, 1, 1))
+  x_mesh = tf.convert_to_tensor(x_mesh, dtype = tf.float32)
+  x_mesh = x_mesh[tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, :, :]
+  x_mesh = tf.tile(x_mesh, multiples = (batchSize, pixelsX, pixelsY, 1, 1, 1))
+
+  c1_x = -Lx / 4
+  c1_y = -Ly / 4
+  c2_x = -Lx / 4
+  c2_y = Ly / 4
+  c3_x = Lx / 4
+  c3_y = -Ly / 4
+  c4_x = Lx / 4
+  c4_y = Ly / 4
+
+  r_x = params['Lx'] * tf.clip_by_value(r_x, clip_value_min = 0.01, clip_value_max = 0.25)
+  r_y = params['Ly'] * tf.clip_by_value(r_y, clip_value_min = 0.01, clip_value_max = 0.25)
+  r_x = r_x[:, :, :, tf.newaxis, tf.newaxis, tf.newaxis, :]
+  r_y = r_y[:, :, :, tf.newaxis, tf.newaxis, tf.newaxis, :]
+
+  c1 = 1 - ((x_mesh - c1_x) / r_x[:, :, :, :, :, :, 0]) ** 2 - ((y_mesh - c1_y) / r_y[:, :, :, :, :, :, 0]) ** 2
+  c2 = 1 - ((x_mesh - c2_x) / r_x[:, :, :, :, :, :, 1]) ** 2 - ((y_mesh - c2_y) / r_y[:, :, :, :, :, :, 1]) ** 2
+  c3 = 1 - ((x_mesh - c3_x) / r_x[:, :, :, :, :, :, 2]) ** 2 - ((y_mesh - c3_y) / r_y[:, :, :, :, :, :, 2]) ** 2
+  c4 = 1 - ((x_mesh - c4_x) / r_x[:, :, :, :, :, :, 3]) ** 2 - ((y_mesh - c4_y) / r_y[:, :, :, :, :, :, 3]) ** 2
+
+  # Build device layer
+  ER_c1 = tf.math.sigmoid(params['sigmoid_coeff'] * c1)
+  ER_c2 = tf.math.sigmoid(params['sigmoid_coeff'] * c2)
+  ER_c3 = tf.math.sigmoid(params['sigmoid_coeff'] * c3)
+  ER_c4 = tf.math.sigmoid(params['sigmoid_coeff'] * c4)
+  ER_t = 1 + (params['erd'] - 1) * (ER_c1 + ER_c2 + ER_c3 + ER_c4)
+
+  # Build substrate and concatenate along the layers dimension
+  device_shape = (batchSize, pixelsX, pixelsY, 1, Nx, Ny)
+  ER_substrate = params['ers'] * tf.ones(device_shape, dtype = tf.float32)
+  ER_t = tf.concat(values = [ER_t, ER_substrate], axis = 3)
+
+  # Cast to complex for subsequent calculations
+  ER_t = tf.cast(ER_t, dtype = tf.complex64)
+  UR_t = tf.convert_to_tensor(UR, dtype = tf.float32)
+  UR_t = tf.cast(UR_t, dtype = tf.complex64)
+
+  return ER_t, UR_t
+
 def generate_cylindrical_nanoposts(duty, params):
 
   # Retrieve simulation size parameters.
