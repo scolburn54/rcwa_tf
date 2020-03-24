@@ -72,7 +72,7 @@ r_y_var = tf.Variable(r_y_initial, dtype = tf.float32)
 epsilon_r_initial, mu_r_initial = solver.generate_coupled_cylindrical_resonators(r_x_var, r_y_var, params)
 
 # Number of optimization iterations.
-N = 500
+N = 2000
 
 # Define an optimizer and data to be stored.
 opt = tf.keras.optimizers.Adam(learning_rate = 1E-3)
@@ -114,7 +114,7 @@ np.save('focal_plane_initial.npy', focal_plane_initial)
 np.save('focal_plane_opt.npy', focal_plane)
 np.save('r_x_initial.npy', r_x_initial)
 np.save('r_y_initial.npy', r_y_initial)
-np.save('r_x_final.npy', r_x_var)
-np.save('r_y_final.npy', r_y_var)
+np.save('r_x_final.npy', r_x_var.numpy())
+np.save('r_y_final.npy', r_y_var.numpy())
 np.save('epsilon_r_initial', epsilon_r_initial)
 np.save('epsilon_r_final', ER_t)
