@@ -17,20 +17,21 @@ def focal_spot():
   focal_plane = solver.propagate(params['input'] * field, params)
   index = (params['pixelsX'] * params['upsample']) // 2
   f1 = tf.abs(focal_plane[0, index, index])
-  loss = -f1
+  f2 = tf.abs(focal_plane[1, index, index])
+  loss = -f1 * f2
 
   return loss
 
 # Initialize global params dictionary and overwrite default values.
 setup_t0 = time.time()
 params = solver.initialize_params()
-params['batchSize'] = 1
+params['batchSize'] = 2
 params['erd'] = 6.76
 params['ers'] = 2.25
 params['PQ'] = [3, 3]
-params['f'] = 20E-6
+params['f'] = 15E-6
 batchSize = params['batchSize']
-num_pixels = 45
+num_pixels = 31
 pixelsX = num_pixels
 pixelsY = num_pixels
 params['pixelsX'] = pixelsX
@@ -41,17 +42,17 @@ params['Nx'] = Nx
 Ny = 128
 params['Ny'] = Ny
 params['sigmoid_coeff'] = 1000.0
-params['upsample'] = 3
+params['upsample'] = 5
 
 # Define the batch parameters and duty cycle variable.
 simulation_shape = (batchSize, pixelsX, pixelsY)
 batch_shape = (batchSize, pixelsX, pixelsY, 1, 1, 1)
 pol_shape = (batchSize, pixelsX, pixelsY, 1)
-lam0 = params['nanometers'] * tf.convert_to_tensor([633.0], dtype = tf.float32)
+lam0 = params['nanometers'] * tf.convert_to_tensor([633.0, 530.0], dtype = tf.float32)
 lam0 = lam0[:, tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis]
 lam0 = tf.tile(lam0, multiples = (1, pixelsX, pixelsY, 1, 1, 1))
 params['lam0'] = lam0
-theta = params['degrees'] * tf.convert_to_tensor([0.0], dtype = tf.float32)
+theta = params['degrees'] * tf.convert_to_tensor([0.0, 0.0], dtype = tf.float32)
 theta = theta[:, tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis]
 theta = tf.tile(theta, multiples = (1, pixelsX, pixelsY, 1, 1, 1))
 params['theta'] = theta
@@ -72,7 +73,7 @@ r_y_var = tf.Variable(r_y_initial, dtype = tf.float32)
 epsilon_r_initial, mu_r_initial = solver.generate_coupled_cylindrical_resonators(r_x_var, r_y_var, params)
 
 # Number of optimization iterations.
-N = 2000
+N = 10000
 
 # Define an optimizer and data to be stored.
 opt = tf.keras.optimizers.Adam(learning_rate = 1E-3)
