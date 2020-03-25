@@ -99,8 +99,8 @@ def generate_coupled_cylindrical_resonators(r_x, r_y, params):
   c4_x = Lx / 4
   c4_y = Ly / 4
 
-  r_x = params['Lx'] * tf.clip_by_value(r_x, clip_value_min = 0.01, clip_value_max = 0.25)
-  r_y = params['Ly'] * tf.clip_by_value(r_y, clip_value_min = 0.01, clip_value_max = 0.25)
+  r_x = params['Lx'] * tf.clip_by_value(r_x, clip_value_min = 0.05, clip_value_max = 0.23)
+  r_y = params['Ly'] * tf.clip_by_value(r_y, clip_value_min = 0.05, clip_value_max = 0.23)
   r_x = r_x[:, :, :, tf.newaxis, tf.newaxis, tf.newaxis, :]
   r_y = r_y[:, :, :, tf.newaxis, tf.newaxis, tf.newaxis, :]
 
