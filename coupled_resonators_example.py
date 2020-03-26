@@ -42,7 +42,7 @@ params['Nx'] = Nx
 Ny = 128
 params['Ny'] = Ny
 params['sigmoid_coeff'] = 1000.0
-params['upsample'] = 5
+params['upsample'] = 11
 
 # Define the batch parameters and duty cycle variable.
 simulation_shape = (batchSize, pixelsX, pixelsY)
@@ -99,8 +99,8 @@ print('Loss: ' + str(loss[N]))
 
 # Simulate the system.
 outputs = solver.simulate(epsilon_r_initial, mu_r_initial, params)
-field = outputs['ty'][:, :, :, np.prod(params['PQ']) // 2, 0]
-focal_plane_initial = solver.propagate(field, params)
+field_initial = outputs['ty'][:, :, :, np.prod(params['PQ']) // 2, 0]
+focal_plane_initial = solver.propagate(field_initial, params)
 
 ER_t, UR_t = solver.generate_coupled_cylindrical_resonators(r_x_var, r_y_var, params)
 
@@ -113,6 +113,8 @@ focal_plane = solver.propagate(field, params)
 np.savetxt('loss.txt', loss)
 np.save('focal_plane_initial.npy', focal_plane_initial)
 np.save('focal_plane_opt.npy', focal_plane)
+np.save('field_initial.npy', field_initial)
+np.save('field_opt.npy', field)
 np.save('r_x_initial.npy', r_x_initial)
 np.save('r_y_initial.npy', r_y_initial)
 np.save('r_x_final.npy', r_x_var.numpy())
