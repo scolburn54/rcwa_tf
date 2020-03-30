@@ -46,7 +46,7 @@ params['Nx'] = Nx
 Ny = 128
 params['Ny'] = Ny
 params['sigmoid_coeff'] = 1000.0
-params['upsample'] = 5
+params['upsample'] = 11
 
 # Define the batch parameters and duty cycle variable.
 simulation_shape = (batchSize, pixelsX, pixelsY)
