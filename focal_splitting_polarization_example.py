@@ -80,8 +80,8 @@ params['input'] = solver.define_input_fields(params)
 
 var_shape = (batchSize, pixelsX, pixelsY, 4)
 np.random.RandomState(seed = 0)
-r_x_initial = np.random.normal(loc = 0.125, scale = 0.025, size = var_shape)
-r_y_initial = np.random.normal(loc = 0.125, scale = 0.025, size = var_shape)
+r_x_initial = 0.125 * np.ones(shape = var_shape)
+r_y_initial = r_x_initial
 r_x_var = tf.Variable(r_x_initial, dtype = tf.float32)
 r_y_var = tf.Variable(r_y_initial, dtype = tf.float32)
 
@@ -89,7 +89,7 @@ r_y_var = tf.Variable(r_y_initial, dtype = tf.float32)
 epsilon_r_initial, mu_r_initial = solver.generate_coupled_cylindrical_resonators(r_x_var, r_y_var, params)
 
 # Number of optimization iterations.
-N = 3000
+N = 150
 
 # Define an optimizer and data to be stored.
 opt = tf.keras.optimizers.Adam(learning_rate = 1E-3)
