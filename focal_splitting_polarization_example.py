@@ -9,7 +9,6 @@ def focal_spot():
 
   # Generate permitivitty and permeability distributions.
   global params
-  #ER_t, UR_t = solver.generate_arbitrary_epsilon(eps_var, params)
   ER_t, UR_t = solver.generate_coupled_cylindrical_resonators(r_x_var, r_y_var, params)
 
   # Simulate the system.
@@ -78,7 +77,7 @@ params['ptm'] = ptm
 params['propagator'] = solver.make_propagator(params)
 params['input'] = solver.define_input_fields(params)
 
-var_shape = (batchSize, pixelsX, pixelsY, 4)
+var_shape = (1, pixelsX, pixelsY, 4)
 np.random.RandomState(seed = 0)
 r_x_initial = 0.125 * np.ones(shape = var_shape)
 r_y_initial = r_x_initial
@@ -89,7 +88,7 @@ r_y_var = tf.Variable(r_y_initial, dtype = tf.float32)
 epsilon_r_initial, mu_r_initial = solver.generate_coupled_cylindrical_resonators(r_x_var, r_y_var, params)
 
 # Number of optimization iterations.
-N = 150
+N = 1
 
 # Define an optimizer and data to be stored.
 opt = tf.keras.optimizers.Adam(learning_rate = 1E-3)
