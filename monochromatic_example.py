@@ -13,25 +13,21 @@ def focal_spot():
 
   # Simulate the system.
   outputs = solver.simulate(ER_t, UR_t, params)
-  field_x = outputs['tx'][:, :, :, np.prod(params['PQ']) // 2, 0]
-  field_y = outputs['ty'][:, :, :, np.prod(params['PQ']) // 2, 0]
-  focal_plane_x = solver.propagate(params['input'] * field_x, params)
-  focal_plane_y = solver.propagate(params['input'] * field_y, params)
+  field = outputs['ty'][:, :, :, np.prod(params['PQ']) // 2, 0]
+  focal_plane = solver.propagate(params['input'] * field, params)
   index = (params['pixelsX'] * params['upsample']) // 2
-  index_x = 3 * (params['pixelsX'] * params['upsample']) // 4
-  index_y = (params['pixelsX'] * params['upsample']) // 4
-  f1 = tf.abs(focal_plane_x[1, index, index_x])
-  f2 = tf.abs(focal_plane_y[0, index, index_y])
+  f1 = tf.abs(focal_plane[0, index, index])
+  loss = -f1
 
-  return -f1 * f2
+  return loss
 
 # Initialize global params dictionary and overwrite default values.
 setup_t0 = time.time()
 params = solver.initialize_params()
-params['batchSize'] = 2
+params['batchSize'] = 1
 params['erd'] = 6.76
 params['ers'] = 2.25
-params['PQ'] = [3, 3]
+params['PQ'] = [5, 5]
 params['f'] = 15E-6
 batchSize = params['batchSize']
 num_pixels = 31
@@ -51,35 +47,22 @@ params['upsample'] = 11
 simulation_shape = (batchSize, pixelsX, pixelsY)
 batch_shape = (batchSize, pixelsX, pixelsY, 1, 1, 1)
 pol_shape = (batchSize, pixelsX, pixelsY, 1)
-
-lam0 = params['nanometers'] * tf.convert_to_tensor([633.0, 633.0], dtype = tf.float32)
+lam0 = params['nanometers'] * tf.convert_to_tensor([633.0], dtype = tf.float32)
 lam0 = lam0[:, tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis]
 lam0 = tf.tile(lam0, multiples = (1, pixelsX, pixelsY, 1, 1, 1))
 params['lam0'] = lam0
-
-theta = params['degrees'] * tf.convert_to_tensor([0.0, 0.0], dtype = tf.float32)
+theta = params['degrees'] * tf.convert_to_tensor([0.0], dtype = tf.float32)
 theta = theta[:, tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis]
 theta = tf.tile(theta, multiples = (1, pixelsX, pixelsY, 1, 1, 1))
 params['theta'] = theta
-
 params['phi'] = 0 * params['degrees'] * tf.ones(shape = batch_shape, dtype = tf.float32)
-
-pte = tf.convert_to_tensor([1.0, 0.0], dtype = tf.complex64)
-pte = pte[:, tf.newaxis, tf.newaxis, tf.newaxis]
-pte = tf.tile(pte, multiples = (1, pixelsX, pixelsY, 1))
-params['pte'] = pte
-
-ptm = tf.convert_to_tensor([0.0, 1.0], dtype = tf.complex64)
-ptm = ptm[:, tf.newaxis, tf.newaxis, tf.newaxis]
-ptm = tf.tile(ptm, multiples = (1, pixelsX, pixelsY, 1))
-params['ptm'] = ptm
-
+params['pte'] = 1 * tf.ones(shape = pol_shape, dtype = tf.complex64)
+params['ptm'] = 0 * tf.ones(shape = pol_shape, dtype = tf.complex64)
 params['propagator'] = solver.make_propagator(params)
 params['input'] = solver.define_input_fields(params)
 
 var_shape = (1, pixelsX, pixelsY, 4)
-np.random.RandomState(seed = 0)
-r_x_initial = 0.125 * np.ones(shape = var_shape)
+r_x_initial = 0.175 * np.ones(shape = var_shape)
 r_y_initial = r_x_initial
 r_x_var = tf.Variable(r_x_initial, dtype = tf.float32)
 r_y_var = tf.Variable(r_y_initial, dtype = tf.float32)
@@ -88,7 +71,7 @@ r_y_var = tf.Variable(r_y_initial, dtype = tf.float32)
 epsilon_r_initial, mu_r_initial = solver.generate_coupled_cylindrical_resonators(r_x_var, r_y_var, params)
 
 # Number of optimization iterations.
-N = 1
+N = 1000
 
 # Define an optimizer and data to be stored.
 opt = tf.keras.optimizers.Adam(learning_rate = 1E-3)
@@ -114,30 +97,22 @@ print('Loss: ' + str(loss[N]))
 
 # Simulate the system.
 outputs = solver.simulate(epsilon_r_initial, mu_r_initial, params)
-field_y_initial = outputs['ty'][:, :, :, np.prod(params['PQ']) // 2, 0]
-focal_plane_initial_y = solver.propagate(field_y_initial, params)
-field_x_initial = outputs['tx'][:, :, :, np.prod(params['PQ']) // 2, 0]
-focal_plane_initial_x = solver.propagate(field_x_initial, params)
+field_initial = outputs['ty'][:, :, :, np.prod(params['PQ']) // 2, 0]
+focal_plane_initial = solver.propagate(field_initial, params)
 
 ER_t, UR_t = solver.generate_coupled_cylindrical_resonators(r_x_var, r_y_var, params)
 
 # Simulate the system.
 outputs = solver.simulate(ER_t, UR_t, params)
-field_y = outputs['ty'][:, :, :, np.prod(params['PQ']) // 2, 0]
-focal_plane_opt_y = solver.propagate(field_y, params)
-field_x = outputs['tx'][:, :, :, np.prod(params['PQ']) // 2, 0]
-focal_plane_opt_x = solver.propagate(field_x, params)
+field = outputs['ty'][:, :, :, np.prod(params['PQ']) // 2, 0]
+focal_plane = solver.propagate(field, params)
 
 # Save data
 np.savetxt('loss.txt', loss)
-np.save('focal_plane_initial_x.npy', focal_plane_initial_x)
-np.save('focal_plane_initial_y.npy', focal_plane_initial_y)
-np.save('focal_plane_opt_x.npy', focal_plane_opt_x)
-np.save('focal_plane_opt_y.npy', focal_plane_opt_y)
-np.save('field_x_initial.npy', field_x_initial)
-np.save('field_y_initial.npy', field_y_initial)
-np.save('field_x.npy', field_x)
-np.save('field_y.npy', field_y)
+np.save('focal_plane_initial.npy', focal_plane_initial)
+np.save('focal_plane_opt.npy', focal_plane)
+np.save('field_initial.npy', field_initial)
+np.save('field_opt.npy', field)
 np.save('r_x_initial.npy', r_x_initial)
 np.save('r_y_initial.npy', r_y_initial)
 np.save('r_x_final.npy', r_x_var.numpy())

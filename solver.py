@@ -46,7 +46,7 @@ def initialize_params():
 
   # Coefficient for the argument of tf.math.sigmoid() when generating
   # permittivity distributions with geometric parameters
-  params['sigmoid_coeff'] = 1E16
+  params['sigmoid_coeff'] = 1000.0
 
   # Allowed permittivity range
   params['eps_min'] = 1.0
@@ -54,6 +54,10 @@ def initialize_params():
 
   # Upsampling for Fourier optics propagation
   params['upsample'] = 1
+
+  # Duty Cycle limits for gratings
+  params['duty_min'] = 0.1
+  params['duty_max'] = 0.9
 
   return params
 
@@ -101,6 +105,8 @@ def generate_coupled_cylindrical_resonators(r_x, r_y, params):
 
   r_x = params['Lx'] * tf.clip_by_value(r_x, clip_value_min = 0.05, clip_value_max = 0.23)
   r_y = params['Ly'] * tf.clip_by_value(r_y, clip_value_min = 0.05, clip_value_max = 0.23)
+  r_x = tf.tile(r_x, multiples = (batchSize, 1, 1, 1))
+  r_y = tf.tile(r_y, multiples = (batchSize, 1, 1, 1))
   r_x = r_x[:, :, :, tf.newaxis, tf.newaxis, tf.newaxis, :]
   r_y = r_y[:, :, :, tf.newaxis, tf.newaxis, tf.newaxis, :]
 
@@ -160,11 +166,11 @@ def generate_cylindrical_nanoposts(duty, params):
   x_mesh = tf.tile(x_mesh, multiples = (batchSize, pixelsX, pixelsY, 1, 1, 1))
 
   # Build device layer
-  a = tf.clip_by_value(duty, clip_value_min = 0.0, clip_value_max = 1.0)
+  a = tf.clip_by_value(duty, clip_value_min = params['duty_min'], clip_value_max = params['duty_max'])
   a = a[:, :, :, tf.newaxis, tf.newaxis, tf.newaxis]
   a = tf.tile(a, multiples = (1, 1, 1, 1, Nx, Ny))
   radius = 0.5 * params['Ly'] * a
-  sigmoid_arg = (radius ** 2 - x_mesh ** 2 - y_mesh ** 2)
+  sigmoid_arg = (1 - (x_mesh / radius) ** 2 - (y_mesh / radius) ** 2)
   ER_t = tf.math.sigmoid(params['sigmoid_coeff'] * sigmoid_arg)
   ER_t = 1 + (params['erd'] - 1) * ER_t
 
