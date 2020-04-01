@@ -44,17 +44,17 @@ print('TRN: ' + str(loss[0]))
 print('\nOptimizing...')
 
 # Optimize.
-prev_percent = 0
-curr_percent = 0
+prev_ten_percent = 0
+curr_ten_percent = 0
 t = time.time()
 for i in range(N):
   opt.minimize(total_transmitted_power, var_list = [var_duty])
   loss[i + 1] = total_transmitted_power().numpy()
   duty[i + 1] = tf.clip_by_value(var_duty, params['duty_min'], params['duty_max']).numpy()
-  prev_percent = curr_percent
-  curr_percent = np.int(100.0 * i / N)
-  if (curr_percent % 10 == 0 and curr_percent != prev_percent):
-      print(str(curr_percent) + '% complete')
+  prev_ten_percent = curr_ten_percent
+  curr_ten_percent = np.int(10.0 * i / N)
+  if (curr_ten_percent != prev_ten_percent):
+      print(str(10 * curr_ten_percent) + '% complete')
 
 print('\nFinal Duty Cycle: ' + str(duty[N]))
 print('TRN: ' + str(loss[N]))
