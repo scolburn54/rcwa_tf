@@ -88,10 +88,10 @@ r_y_var = tf.Variable(r_y_initial, dtype = tf.float32)
 epsilon_r_initial, mu_r_initial = solver.generate_coupled_cylindrical_resonators(r_x_var, r_y_var, params)
 
 # Number of optimization iterations.
-N = 63 
+N = 150 
 
 # Define an optimizer and data to be stored.
-opt = tf.keras.optimizers.Adam(learning_rate = 1E-3)
+opt = tf.keras.optimizers.Adam(learning_rate = 5E-4)
 loss = np.zeros(N + 1)
 duty = np.zeros(N + 1)
 setup_time = time.time() - setup_t0
