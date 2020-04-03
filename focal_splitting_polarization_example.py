@@ -88,7 +88,7 @@ r_y_var = tf.Variable(r_y_initial, dtype = tf.float32)
 epsilon_r_initial, mu_r_initial = solver.generate_coupled_cylindrical_resonators(r_x_var, r_y_var, params)
 
 # Number of optimization iterations.
-N = 150 
+N = 120 
 
 # Define an optimizer and data to be stored.
 opt = tf.keras.optimizers.Adam(learning_rate = 5E-4)
@@ -102,16 +102,16 @@ print('Loss: ' + str(loss[0]))
 print('\nOptimizing...')
 
 # Optimize.
-prev_percent = 0
-curr_percent = 0
+prev_ten_percent = 0
+curr_ten_percent = 0
 t = time.time()
 for i in range(N):
   opt.minimize(focal_spot, var_list = [r_x_var, r_y_var])
   loss[i + 1] = focal_spot().numpy()
-  prev_percent = curr_percent
-  curr_percent = np.int(100.0 * i / N)
-  if (curr_percent % 10 == 0 and curr_percent != prev_percent):
-      print(str(curr_percent) + '% complete')
+  prev_ten_percent = curr_ten_percent
+  curr_ten_percent = np.int(10.0 * i / N)
+  if (curr_ten_percent != prev_ten_percent):
+      print(str(10 * curr_ten_percent) + '% complete')
 
 elapsed_time = time.time() - t
 print('Setup Time: ' + str(setup_time))
