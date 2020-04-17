@@ -48,7 +48,7 @@ params['upsample'] = 11
 simulation_shape = (batchSize, pixelsX, pixelsY)
 batch_shape = (batchSize, pixelsX, pixelsY, 1, 1, 1)
 pol_shape = (batchSize, pixelsX, pixelsY, 1)
-lam0 = params['nanometers'] * tf.convert_to_tensor([633.0, 633.0], dtype = tf.float32)
+lam0 = params['nanometers'] * tf.convert_to_tensor([633.0, 530.0], dtype = tf.float32)
 lam0 = lam0[:, tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis]
 lam0 = tf.tile(lam0, multiples = (1, pixelsX, pixelsY, 1, 1, 1))
 params['lam0'] = lam0
@@ -72,7 +72,7 @@ r_y_var = tf.Variable(r_y_initial, dtype = tf.float32)
 epsilon_r_initial, mu_r_initial = solver.generate_coupled_cylindrical_resonators(r_x_var, r_y_var, params)
 
 # Number of optimization iterations.
-N = 112
+N = 152
 
 # Define an optimizer and data to be stored.
 opt = tf.keras.optimizers.Adam(learning_rate = 5E-4)
