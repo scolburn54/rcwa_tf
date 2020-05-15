@@ -25,10 +25,10 @@ def focal_spot():
 setup_t0 = time.time()
 params = solver.initialize_params()
 params['batchSize'] = 1
-params['erd'] = 6.76
-params['ers'] = 2.25
+params['erd'] = 12.67
+params['ers'] = 2.11
 params['PQ'] = [5, 5]
-params['f'] = 15E-6
+params['f'] = 20E-6
 batchSize = params['batchSize']
 num_pixels = 31
 pixelsX = num_pixels
@@ -42,12 +42,16 @@ Ny = 128
 params['Ny'] = Ny
 params['sigmoid_coeff'] = 1000.0
 params['upsample'] = 11
+params['Lx'] = 620 * params['nanometers'] # period along x
+params['Ly'] = params['Lx'] # period along y
+length_shape = (1, 1, 1, params['Nlay'], 1, 1)
+params['L'] = 720 * params['nanometers'] * tf.ones(shape = length_shape, dtype = tf.complex64)
 
 # Define the batch parameters and duty cycle variable.
 simulation_shape = (batchSize, pixelsX, pixelsY)
 batch_shape = (batchSize, pixelsX, pixelsY, 1, 1, 1)
 pol_shape = (batchSize, pixelsX, pixelsY, 1)
-lam0 = params['nanometers'] * tf.convert_to_tensor([633.0], dtype = tf.float32)
+lam0 = params['nanometers'] * tf.convert_to_tensor([915.0], dtype = tf.float32)
 lam0 = lam0[:, tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis]
 lam0 = tf.tile(lam0, multiples = (1, pixelsX, pixelsY, 1, 1, 1))
 params['lam0'] = lam0
@@ -62,7 +66,7 @@ params['propagator'] = solver.make_propagator(params)
 params['input'] = solver.define_input_fields(params)
 
 var_shape = (1, pixelsX, pixelsY, 4)
-r_x_initial = 0.2 * np.ones(shape = var_shape)
+r_x_initial = 0.175 * np.ones(shape = var_shape)
 r_y_initial = r_x_initial
 r_x_var = tf.Variable(r_x_initial, dtype = tf.float32)
 r_y_var = tf.Variable(r_y_initial, dtype = tf.float32)
@@ -71,7 +75,7 @@ r_y_var = tf.Variable(r_y_initial, dtype = tf.float32)
 epsilon_r_initial, mu_r_initial = solver.generate_coupled_cylindrical_resonators(r_x_var, r_y_var, params)
 
 # Number of optimization iterations.
-N = 500
+N = 300
 
 # Define an optimizer and data to be stored.
 opt = tf.keras.optimizers.Adam(learning_rate = 2E-4)
