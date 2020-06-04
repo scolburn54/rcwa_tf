@@ -28,7 +28,6 @@ params['batchSize'] = 1
 params['erd'] = 6.76
 params['ers'] = 2.25
 params['PQ'] = [5, 5]
-params['f'] = 30E-6
 batchSize = params['batchSize']
 num_pixels = 31
 pixelsX = num_pixels
@@ -46,6 +45,7 @@ params['Lx'] = 0.7 * 632 * params['nanometers'] # period along x
 params['Ly'] = params['Lx'] # period along y
 length_shape = (1, 1, 1, params['Nlay'], 1, 1)
 params['L'] = 632 * params['nanometers'] * tf.ones(shape = length_shape, dtype = tf.complex64)
+params['f'] = 1.0 * params['Lx'] * num_pixels
 
 # Define the batch parameters and duty cycle variable.
 simulation_shape = (batchSize, pixelsX, pixelsY)
