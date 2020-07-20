@@ -26,7 +26,7 @@ def expand_and_tile_tf(tensor, batchSize, pixelsX, pixelsY):
   return tf.tile(tensor, multiples = (batchSize, pixelsX, pixelsY, 1, 1))
   
 @tf.custom_gradient
-def eig_general(A, eps = 1E-12):
+def eig_general(A, eps = 1E-6):
   '''
     Computes the eigendecomposition of a batch of matrices, the same as 
     `tf.eig()` but assumes the input shape also has extra dimensions for pixels
