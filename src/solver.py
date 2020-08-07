@@ -1,3 +1,7 @@
+# Copyright (c) 2020, Shane Colburn, University of Washington
+# This file is part of rcwa_tf
+# Written by Shane Colburn (Email: scolbur2@uw.edu)
+
 import tensorflow as tf
 import numpy as np
 import rcwa_utils
