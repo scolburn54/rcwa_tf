@@ -3,8 +3,15 @@ import numpy as np
 import rcwa_utils
 import tensor_utils
 
+
 def initialize_params():
-  
+  '''
+    Initializes simulation parameters and hyperparameters.
+
+    Returns:
+        params: A `dict` containing simulation and optimization settings.
+  '''
+
   # Define the `params` dictionary.
   params = dict({})
 
@@ -64,6 +71,7 @@ def initialize_params():
 
   return params
 
+
 def generate_coupled_cylindrical_resonators(r_x, r_y, params):
   '''
     Generates permittivity/permeability for a unit cell comprising 4 coupled
@@ -75,7 +83,7 @@ def generate_coupled_cylindrical_resonators(r_x, r_y, params):
         r_y: A `tf.Tensor` of shape `(1, pixelsX, pixelsY, 4)` specifying the 
         y-axis diameters of the four cylinders.
 
-        params: A `dict` containing simulation and optimizing settings.
+        params: A `dict` containing simulation and optimization settings.
     Returns:
         ER_t: A `tf.Tensor` of shape `(batchSize, pixelsX, pixelsY, Nlayer, Nx, Ny)`
         specifying the relative permittivity distribution of the unit cell.
@@ -158,6 +166,7 @@ def generate_coupled_cylindrical_resonators(r_x, r_y, params):
 
   return ER_t, UR_t
 
+
 def generate_coupled_rectangular_resonators(r_x, r_y, params):
   '''
     Generates permittivity/permeability for a unit cell comprising 4 coupled
@@ -169,7 +178,7 @@ def generate_coupled_rectangular_resonators(r_x, r_y, params):
         r_y: A `tf.Tensor` of shape `(1, pixelsX, pixelsY, 4)` specifying the 
         y-axis widths of the four rectangles.
 
-        params: A `dict` containing simulation and optimizing settings.
+        params: A `dict` containing simulation and optimization settings.
     Returns:
         ER_t: A `tf.Tensor` of shape `(batchSize, pixelsX, pixelsY, Nlayer, Nx, Ny)`
         specifying the relative permittivity distribution of the unit cell.
@@ -252,6 +261,7 @@ def generate_coupled_rectangular_resonators(r_x, r_y, params):
 
   return ER_t, UR_t
 
+
 def generate_rectangular_resonators(r_x, r_y, params):
   '''
     Generates permittivity/permeability for a unit cell comprising a single, 
@@ -264,7 +274,7 @@ def generate_rectangular_resonators(r_x, r_y, params):
         r_y: A `tf.Tensor` of shape `(1, pixelsX, pixelsY, 1)` specifying the 
         y-axis widths of the rectangle.
 
-        params: A `dict` containing simulation and optimizing settings.
+        params: A `dict` containing simulation and optimization settings.
     Returns:
         ER_t: A `tf.Tensor` of shape `(batchSize, pixelsX, pixelsY, Nlayer, Nx, Ny)`
         specifying the relative permittivity distribution of the unit cell.
@@ -330,6 +340,7 @@ def generate_rectangular_resonators(r_x, r_y, params):
 
   return ER_t, UR_t
 
+
 def generate_elliptical_resonators(r_x, r_y, params):
   '''
     Generates permittivity/permeability for a unit cell comprising a single, 
@@ -342,7 +353,7 @@ def generate_elliptical_resonators(r_x, r_y, params):
         r_y: A `tf.Tensor` of shape `(1, pixelsX, pixelsY, 1)` specifying the 
         y-axis diameter of the ellipse.
 
-        params: A `dict` containing simulation and optimizing settings.
+        params: A `dict` containing simulation and optimization settings.
     Returns:
         ER_t: A `tf.Tensor` of shape `(batchSize, pixelsX, pixelsY, Nlayer, Nx, Ny)`
         specifying the relative permittivity distribution of the unit cell.
@@ -409,6 +420,7 @@ def generate_elliptical_resonators(r_x, r_y, params):
 
   return ER_t, UR_t
 
+
 def generate_cylindrical_nanoposts(duty, params):
   '''
     Generates permittivity/permeability for a unit cell comprising a single, 
@@ -421,7 +433,7 @@ def generate_cylindrical_nanoposts(duty, params):
         r_x: A `tf.Tensor` of shape `(1, pixelsX, pixelsY, 1)` specifying the 
         y-axis diameter of the circle.
 
-        params: A `dict` containing simulation and optimizing settings.
+        params: A `dict` containing simulation and optimization settings.
     Returns:
         ER_t: A `tf.Tensor` of shape `(batchSize, pixelsX, pixelsY, Nlayer, Nx, Ny)`
         specifying the relative permittivity distribution of the unit cell.
@@ -480,6 +492,7 @@ def generate_cylindrical_nanoposts(duty, params):
 
   return ER_t, UR_t
 
+
 def generate_arbitrary_epsilon(eps_r, params):
   '''
     Generates permittivity/permeability for a unit cell comprising a continuously
@@ -490,7 +503,7 @@ def generate_arbitrary_epsilon(eps_r, params):
         and type `tf.float32` specifying the permittivity at each point in the 
         unit cell grid.
 
-        params: A `dict` containing simulation and optimizing settings.
+        params: A `dict` containing simulation and optimization settings.
     Returns:
         ER_t: A `tf.Tensor` of shape `(batchSize, pixelsX, pixelsY, Nlayer, Nx, Ny)`
         specifying the relative permittivity distribution of the unit cell.
@@ -526,13 +539,14 @@ def generate_arbitrary_epsilon(eps_r, params):
 
   return ER_t, UR_t
 
+
 def make_propagator(params):
   '''
     Pre-computes the band-limited angular spectrum propagator for modelling
     free-space propagation for the distance and sampling as specified in `params`.
 
     Args:
-        params: A `dict` containing simulation and optimizing settings.
+        params: A `dict` containing simulation and optimization settings.
     Returns:
         propagator: a `tf.Tensor` of shape `(batchSize, params['upsample'] * pixelsX,
         params['upsample'] * pixelsY)` and dtype `tf.complex64` defining the 
@@ -581,6 +595,7 @@ def make_propagator(params):
 
   return propagator
 
+
 def propagate(field, params):
   '''
     Propagates a batch of input fields to a parallel output plane using the 
@@ -591,7 +606,7 @@ def propagate(field, params):
         params['upsample'] * pixelsY)` and dtype `tf.complex64` specifying the 
         input electric fields to be diffracted to the output plane.
 
-        params: A `dict` containing simulation and optimizing settings.
+        params: A `dict` containing simulation and optimization settings.
     Returns:
         out: A `tf.Tensor` of shape `(batchSize, params['upsample'] * pixelsX,
         params['upsample'] * pixelsY)` and dtype `tf.complex64` specifying the 
@@ -626,13 +641,14 @@ def propagate(field, params):
 
   return out
 
+
 def define_input_fields(params):
   '''
     Given the batch of input conditions with different wavelengths and incidence
     angles, this gives the input source fields incident on the metasurface.
 
     Args:
-        params: A `dict` containing simulation and optimizing settings.
+        params: A `dict` containing simulation and optimization settings.
     Returns:
         A `tf.Tensor` of shape `(batchSize, pixelsX, pixelsY)` and dtype 
         `tf.complex64` specifying the source fields injected onto a metasurface
@@ -664,6 +680,7 @@ def define_input_fields(params):
 
   return tf.exp(1j * phase_def)
 
+
 def simulate(ER_t, UR_t, params = initialize_params()):
   '''
     Calculates the transmission/reflection coefficients for a unit cell with a
@@ -680,7 +697,7 @@ def simulate(ER_t, UR_t, params = initialize_params()):
         and dtype `tf.complex64` specifying the relative permeability distribution
         of the unit cell.
 
-        params: A `dict` containing simulation and optimizing settings.
+        params: A `dict` containing simulation and optimization settings.
     Returns:
         outputs: A `dict` containing the keys {'rx', 'ry', 'rz', 'R', 'ref', 
         'tx', 'ty', 'tz', 'T', 'TRN'} corresponding to the computed reflection/tranmission
