@@ -1,7 +1,3 @@
-# Copyright (c) 2020, Shane Colburn, University of Washington
-# This file is part of rcwa_tf
-# Written by Shane Colburn (Email: scolbur2@uw.edu)
-
 import tensorflow as tf
 import numpy as np
 import rcwa_utils
@@ -15,7 +11,25 @@ def initialize_params(wavelengths = [632.0],
                       ptm = [0.0]):
   '''
     Initializes simulation parameters and hyperparameters.
+    Args:
+        wavelengths: A `list` of dtype `float` and length `batchSize` specifying
+        the set of wavelengths over which to optimize.
 
+        thetas: A `list` of dtype `float` and length `batchSize` specifying
+        the set of polar angles over which to optimize.
+
+        phis: A `list` of dtype `float` and length `batchSize` specifying the 
+        set of azimuthal angles over which to optimize.
+
+        pte: A `list` of dtype `float` and length `batchSize` specifying the set
+        of TE polarization component magnitudes over which to optimize. A 
+        magnitude of 0.0 means no TE component. Under normal incidence, the TE 
+        polarization is parallel to the y-axis.
+
+        ptm: A `list` of dtype `float` and length `batchSize` specifying the set
+        of TM polarization component magnitudes over which to optimize. A 
+        magnitude of 0.0 means no TM component. Under normal incidence, the TM 
+        polarization is parallel to the x-axis.
     Returns:
         params: A `dict` containing simulation and optimization settings.
   '''
