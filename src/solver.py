@@ -4,7 +4,11 @@ import rcwa_utils
 import tensor_utils
 
 
-def initialize_params():
+def initialize_params(wavelengths = [632.0],
+                      thetas = [0.0],
+                      phis = [0.0],
+                      pte = [1.0],
+                      ptm = [0.0]):
   '''
     Initializes simulation parameters and hyperparameters.
 
@@ -18,19 +22,42 @@ def initialize_params():
   # Units and tensor dimensions.
   params['nanometers'] = 1E-9
   params['degrees'] = np.pi / 180
-  params['batchSize'] = 1
+  params['batchSize'] = len(wavelengths)
   params['pixelsX'] = 1
   params['pixelsY'] = 1
   params['Nlay'] = 2
 
-  # Batch parameters.
-  batch_shape = (params['batchSize'], 1, 1, 1, 1, 1)
-  pol_shape = (params['batchSize'], 1, 1, 1)
-  params['lam0'] = 632 * params['nanometers'] * tf.ones(shape = batch_shape, dtype = tf.float32) # free space wavelength
-  params['theta'] = 0 * params['degrees'] * tf.ones(shape = batch_shape, dtype = tf.float32)
-  params['phi'] = 0 * params['degrees'] * tf.ones(shape = batch_shape, dtype = tf.float32)
-  params['pte'] = 1 * tf.ones(shape = pol_shape, dtype = tf.complex64)
-  params['ptm'] = 0 * tf.ones(shape = pol_shape, dtype = tf.complex64)
+  # Simulation tensor shapes.
+  pixelsX = params['pixelsX']
+  pixelsY = params['pixelsY']
+  batchSize = params['batchSize']
+  simulation_shape = (batchSize, pixelsX, pixelsY)
+
+  # Batch parameters (wavelength, incidence angle, and polarization).
+  lam0 = params['nanometers'] * tf.convert_to_tensor(wavelengths, dtype = tf.float32)
+  lam0 = lam0[:, tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis]
+  lam0 = tf.tile(lam0, multiples = (1, pixelsX, pixelsY, 1, 1, 1))
+  params['lam0'] = lam0
+
+  theta = params['degrees'] * tf.convert_to_tensor(thetas, dtype = tf.float32)
+  theta = theta[:, tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis]
+  theta = tf.tile(theta, multiples = (1, pixelsX, pixelsY, 1, 1, 1))
+  params['theta'] = theta
+
+  phi = params['degrees'] * tf.convert_to_tensor(phis, dtype = tf.float32)
+  phi = phi[:, tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis]
+  phi = tf.tile(phi, multiples = (1, pixelsX, pixelsY, 1, 1, 1))
+  params['phi'] = phi
+
+  pte = tf.convert_to_tensor(pte, dtype = tf.complex64)
+  pte = pte[:, tf.newaxis, tf.newaxis, tf.newaxis]
+  pte = tf.tile(pte, multiples = (1, pixelsX, pixelsY, 1))
+  params['pte'] = pte
+
+  ptm = tf.convert_to_tensor(ptm, dtype = tf.complex64)
+  ptm = ptm[:, tf.newaxis, tf.newaxis, tf.newaxis]
+  ptm = tf.tile(ptm, multiples = (1, pixelsX, pixelsY, 1))
+  params['ptm'] = ptm
 
   # Device parameters.
   params['ur1'] = 1.0 # permeability in reflection region
@@ -45,6 +72,8 @@ def initialize_params():
   params['Ly'] = params['Lx'] # period along y
   length_shape = (1, 1, 1, params['Nlay'], 1, 1)
   params['L'] = 632 * params['nanometers'] * tf.ones(shape = length_shape, dtype = tf.complex64)
+  params['length_min'] = 0.1
+  params['length_max'] = 2.0
 
   # RCWA parameters.
   params['Nx'] = 512 # number of point along x in real-space grid
@@ -477,6 +506,146 @@ def generate_cylindrical_nanoposts(duty, params):
   a = tf.tile(a, multiples = (1, 1, 1, 1, Nx, Ny))
   radius = 0.5 * params['Ly'] * a
   sigmoid_arg = (1 - (x_mesh / radius) ** 2 - (y_mesh / radius) ** 2)
+  ER_t = tf.math.sigmoid(params['sigmoid_coeff'] * sigmoid_arg)
+  ER_t = 1 + (params['erd'] - 1) * ER_t
+
+  # Build substrate and concatenate along the layers dimension.
+  device_shape = (batchSize, pixelsX, pixelsY, 1, Nx, Ny)
+  ER_substrate = params['ers'] * tf.ones(device_shape, dtype = tf.float32)
+  ER_t = tf.concat(values = [ER_t, ER_substrate], axis = 3)
+
+  # Cast to complex for subsequent calculations.
+  ER_t = tf.cast(ER_t, dtype = tf.complex64)
+  UR_t = tf.convert_to_tensor(UR, dtype = tf.float32)
+  UR_t = tf.cast(UR_t, dtype = tf.complex64)
+
+  return ER_t, UR_t
+
+
+def generate_stacked_cylindrical_nanoposts(duty, params):
+  '''
+    Generates permittivity/permeability for a unit cell comprising a stacked
+    cylinders.
+
+    Args:
+        duty: A `tf.Tensor` of shape `(1, 1, 1, Nlay - 1, 1, 1)` specifying the 
+        thicknesses of the cylinders in each layer, excluding the substrate 
+        tihckness.
+
+        params: A `dict` containing simulation and optimization settings.
+    Returns:
+        ER_t: A `tf.Tensor` of shape `(batchSize, pixelsX, pixelsY, Nlayer, Nx, Ny)`
+        specifying the relative permittivity distribution of the unit cell.
+
+        UR_t: A `tf.Tensor` of shape `(batchSize, pixelsX, pixelsY, Nlayer, Nx, Ny)`
+        specifying the relative permeability distribution of the unit cell.
+  '''
+
+  # Retrieve simulation size parameters.
+  batchSize = params['batchSize']
+  pixelsX = params['pixelsX']
+  pixelsY = params['pixelsY']
+  Nlay = params['Nlay']
+  Nx = params['Nx']
+  Ny = params['Ny']
+
+  # Initialize relative permeability.
+  materials_shape = (batchSize, pixelsX, pixelsY, Nlay, Nx, Ny)
+  UR = params['urd'] * np.ones(materials_shape)
+
+  # Define the cartesian cross section.
+  dx = params['Lx'] / Nx # grid resolution along x
+  dy = params['Ly'] / Ny # grid resolution along y
+  xa = np.linspace(0, Nx - 1, Nx) * dx # x axis array
+  xa = xa - np.mean(xa) # center x axis at zero
+  ya = np.linspace(0, Ny - 1, Ny) * dy # y axis vector
+  ya = ya - np.mean(ya) # center y axis at zero
+  [y_mesh, x_mesh] = np.meshgrid(ya,xa)
+
+  # Convert to tensors and expand and tile to match the simulation shape.
+  y_mesh = tf.convert_to_tensor(y_mesh, dtype = tf.float32)
+  y_mesh = y_mesh[tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, :, :]
+  y_mesh = tf.tile(y_mesh, multiples = (batchSize, pixelsX, pixelsY, Nlay - 1, 1, 1))
+  x_mesh = tf.convert_to_tensor(x_mesh, dtype = tf.float32)
+  x_mesh = x_mesh[tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, :, :]
+  x_mesh = tf.tile(x_mesh, multiples = (batchSize, pixelsX, pixelsY, Nlay - 1, 1, 1))
+
+  # Build device layer.
+  a = tf.clip_by_value(duty, clip_value_min = params['duty_min'], clip_value_max = params['duty_max'])
+  a = a[:, :, :, :, tf.newaxis, tf.newaxis]
+  a = tf.tile(a, multiples = (1, 1, 1, 1, Nx, Ny))
+  radius = 0.5 * params['Ly'] * a
+  sigmoid_arg = (1 - (x_mesh / radius) ** 2 - (y_mesh / radius) ** 2)
+  ER_t = tf.math.sigmoid(params['sigmoid_coeff'] * sigmoid_arg)
+  ER_t = 1 + (params['erd'] - 1) * ER_t
+
+  # Build substrate and concatenate along the layers dimension.
+  device_shape = (batchSize, pixelsX, pixelsY, 1, Nx, Ny)
+  ER_substrate = params['ers'] * tf.ones(device_shape, dtype = tf.float32)
+  ER_t = tf.concat(values = [ER_t, ER_substrate], axis = 3)
+
+  # Cast to complex for subsequent calculations.
+  ER_t = tf.cast(ER_t, dtype = tf.complex64)
+  UR_t = tf.convert_to_tensor(UR, dtype = tf.float32)
+  UR_t = tf.cast(UR_t, dtype = tf.complex64)
+
+  return ER_t, UR_t
+
+
+def generate_rectangular_lines(duty, params):
+  '''
+    Generates permittivity/permeability for a unit cell comprising a single
+    rectangle that spans the full y length and with width defined along the x
+    direction.
+
+    Args:
+        duty: A `tf.Tensor` of shape `(1, pixelsX, pixelsY)` specifying the duty
+        cycle (i.e., width / pitch) along the x direction for the rectangle.
+
+        params: A `dict` containing simulation and optimization settings.
+    Returns:
+        ER_t: A `tf.Tensor` of shape `(batchSize, pixelsX, pixelsY, Nlayer, Nx, Ny)`
+        specifying the relative permittivity distribution of the unit cell.
+
+        UR_t: A `tf.Tensor` of shape `(batchSize, pixelsX, pixelsY, Nlayer, Nx, Ny)`
+        specifying the relative permeability distribution of the unit cell.
+  '''
+
+  # Retrieve simulation size parameters.
+  batchSize = params['batchSize']
+  pixelsX = params['pixelsX']
+  pixelsY = params['pixelsY']
+  Nlay = params['Nlay']
+  Nx = params['Nx']
+  Ny = params['Ny']
+
+  # Initialize relative permeability.
+  materials_shape = (batchSize, pixelsX, pixelsY, Nlay, Nx, Ny)
+  UR = params['urd'] * np.ones(materials_shape)
+
+  # Define the cartesian cross section.
+  dx = params['Lx'] / Nx # grid resolution along x
+  dy = params['Ly'] / Ny # grid resolution along y
+  xa = np.linspace(0, Nx - 1, Nx) * dx # x axis array
+  xa = xa - np.mean(xa) # center x axis at zero
+  ya = np.linspace(0, Ny - 1, Ny) * dy # y axis vector
+  ya = ya - np.mean(ya) # center y axis at zero
+  [y_mesh, x_mesh] = np.meshgrid(ya,xa)
+
+  # Convert to tensors and expand and tile to match the simulation shape.
+  y_mesh = tf.convert_to_tensor(y_mesh, dtype = tf.float32)
+  y_mesh = y_mesh[tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, :, :]
+  y_mesh = tf.tile(y_mesh, multiples = (batchSize, pixelsX, pixelsY, 1, 1, 1))
+  x_mesh = tf.convert_to_tensor(x_mesh, dtype = tf.float32)
+  x_mesh = x_mesh[tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, :, :]
+  x_mesh = tf.tile(x_mesh, multiples = (batchSize, pixelsX, pixelsY, 1, 1, 1))
+
+  # Build device layer.
+  a = tf.clip_by_value(duty, clip_value_min = params['duty_min'], clip_value_max = params['duty_max'])
+  a = a[:, :, :, tf.newaxis, tf.newaxis, tf.newaxis]
+  a = tf.tile(a, multiples = (1, 1, 1, 1, Nx, Ny))
+  radius = 0.5 * params['Ly'] * a
+  sigmoid_arg = 1 - tf.math.abs(x_mesh / radius)
   ER_t = tf.math.sigmoid(params['sigmoid_coeff'] * sigmoid_arg)
   ER_t = 1 + (params['erd'] - 1) * ER_t
 
