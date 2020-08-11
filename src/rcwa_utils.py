@@ -5,23 +5,6 @@
 import tensorflow as tf
 import numpy as np
 
-def fftshift_tf(matrix):
-    '''
-    Performs a fftshift operation on a given matrix with odd dimensions.
-    Args:
-        matrix: A `tf.Tensor` of dtype `float` and shape `(batchSize, pixelsX, 
-        pixelsY, layers, P * Q, P * Q)` of Fourier components with the DC 
-        component at position [0, 0].
-    Returns:
-        A `tf.Tensor` of dtype `float` and shape `(batchSize, pixelsX, pixelsY, 
-        layers, P * Q, P * Q)` of Fourier components with the DC component 
-        centered.
-    '''
-
-    _, _, _, _, Nx, _ = matrix.shape
-    shiftAmt = int(np.floor(Nx / 2.0))
-    shifted_once = tf.roll(matrix, shift=shiftAmt, axis = 4) 
-    return tf.roll(shifted_once, shift=shiftAmt, axis = 5)
     
 def convmat(A, P, Q):
     '''
@@ -61,7 +44,7 @@ def convmat(A, P, Q):
     q0 = int(np.floor(Ny / 2))
 
     # Fourier transform the real space distributions.
-    A = fftshift_tf(tf.signal.fft2d(A)) / (Nx * Ny)
+    A = tf.signal.fftshift(tf.signal.fft2d(A), axes = (4, 5)) / (Nx * Ny)
 
     # Build the matrix.
     firstCoeff = True
