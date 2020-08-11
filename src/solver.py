@@ -686,9 +686,10 @@ def generate_arbitrary_epsilon(eps_r, params):
     varying permittivity for each pixel in the Cartesian grid.
 
     Args:
-        eps_r: A `tf.Tensor` of shape `(batchSize, pixelsX, pixelsY, 1, Nx, Ny)`
+        eps_r: A `tf.Tensor` of shape `(1, pixelsX, pixelsY, Nlayer - 1, Nx, Ny)`
         and type `tf.float32` specifying the permittivity at each point in the 
-        unit cell grid.
+        unit cell grid. The `Nlayer - 1` eps_r.shape[3] length corresponds to 
+        there being a fixed substrate that is unchanging between iterations.
 
         params: A `dict` containing simulation and optimization settings.
     Returns:
@@ -713,6 +714,7 @@ def generate_arbitrary_epsilon(eps_r, params):
 
   # Set the permittivity.
   ER_t = tf.clip_by_value(eps_r, clip_value_min = params['eps_min'], clip_value_max = params['eps_max'])
+  ER_t = tf.tile(ER_t, multiples = (batchSize, 1, 1, 1, 1, 1))
 
   # Build substrate and concatenate along the layers dimension.
   device_shape = (batchSize, pixelsX, pixelsY, 1, Nx, Ny)
