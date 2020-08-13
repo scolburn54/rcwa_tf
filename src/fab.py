@@ -114,7 +114,7 @@ def binary_push(eps_r, weight, params):
         and dtype `tf.float32` specifying the permittivity at each point in the 
         unit cell grid.
 
-        eps_r: A `float` specifying the coefficient of the sigmoid argument that
+        weight: A `float` specifying the coefficient of the sigmoid argument that
         specifices how hard to "push" the permittivity to a binary structure.
         The higher the weight, the more binary the structure will be.
 
