@@ -8,7 +8,19 @@ def initialize_params(wavelengths = [632.0],
                       thetas = [0.0],
                       phis = [0.0],
                       pte = [1.0],
-                      ptm = [0.0]):
+                      ptm = [0.0],
+                      pixelsX = 1,
+                      pixelsY = 1,
+                      erd = 6.76,
+                      ers = 2.25,
+                      PQ = [11, 11],
+                      Lx = 0.7 * 632.0,
+                      Ly = 0.7 * 632.0,
+                      L = [632.0, 632.0],
+                      Nx = 512,
+                      eps_min = 1.0,
+                      eps_max = 12.11,
+                      blur_radius = 100.0):
   '''
     Initializes simulation parameters and hyperparameters.
     Args:
@@ -30,6 +42,43 @@ def initialize_params(wavelengths = [632.0],
         of TM polarization component magnitudes over which to optimize. A 
         magnitude of 0.0 means no TM component. Under normal incidence, the TM 
         polarization is parallel to the x-axis.
+
+        pixelsX: An `int` specifying the x dimension of the metasurface in
+        pixels that are of width `params['Lx']`.
+
+        pixelsY: An `int` specifying the y dimension of the metasurface in
+        pixels that are of width `params['Ly']`.
+
+        erd: A `float` specifying the relative permittivity of the non-vacuum,
+        constituent material of the device layer for shape optimizations.
+
+        ers: A `float` specifying the relative permittivity of the substrate
+        layer.
+
+        PQ: A `list` of dtype `int` and length 2 specifying the number of 
+        Fourier harmonics in the x and y directions. The numbers should be odd
+        values.
+
+        Lx: A `float` specifying the unit cell pitch in the x direction in
+        nanometers.
+
+        Ly: A `float` specifying the unit cell pitch in the y direction in
+        nanometers.
+
+        L: A `list` of dtype `float` specifying the layer thicknesses in 
+        nanometers.
+
+        Nx: An `int` specifying the number of sample points along the x 
+        direction in the unit cell.
+
+        eps_min: A `float` specifying the minimum allowed permittivity for 
+        topology optimizations.
+
+        eps_max: A `float` specifying the maximum allowed permittivity for 
+        topology optimizations.
+
+        blur_radius: A `float` specifying the radius of the blur function with 
+        which a topology optimized permittivity density should be convolved.
     Returns:
         params: A `dict` containing simulation and optimization settings.
   '''
@@ -41,13 +90,11 @@ def initialize_params(wavelengths = [632.0],
   params['nanometers'] = 1E-9
   params['degrees'] = np.pi / 180
   params['batchSize'] = len(wavelengths)
-  params['pixelsX'] = 1
-  params['pixelsY'] = 1
+  params['pixelsX'] = pixelsX
+  params['pixelsY'] = pixelsY
   params['Nlay'] = 2
 
   # Simulation tensor shapes.
-  pixelsX = params['pixelsX']
-  pixelsY = params['pixelsY']
   batchSize = params['batchSize']
   simulation_shape = (batchSize, pixelsX, pixelsY)
 
@@ -83,20 +130,22 @@ def initialize_params(wavelengths = [632.0],
   params['ur2'] = 1.0 # permeability in transmission region
   params['er2'] = 1.0 # permittivity in transmission region
   params['urd'] = 1.0 # permeability of device
-  params['erd'] = 4.0 # permittivity of device
+  params['erd'] = erd # permittivity of device
   params['urs'] = 1.0 # permeability of substrate
-  params['ers'] = 2.25 # permittivity of substrate
-  params['Lx'] = 0.7 * 632 * params['nanometers'] # period along x
-  params['Ly'] = params['Lx'] # period along y
+  params['ers'] = ers # permittivity of substrate
+  params['Lx'] = Lx * params['nanometers'] # period along x
+  params['Ly'] = Ly * params['nanometers'] # period along y
   length_shape = (1, 1, 1, params['Nlay'], 1, 1)
-  params['L'] = 632 * params['nanometers'] * tf.ones(shape = length_shape, dtype = tf.complex64)
+  L = tf.convert_to_tensor(L, dtype = tf.complex64)
+  L = L[tf.newaxis, tf.newaxis, tf.newaxis, :, tf.newaxis, tf.newaxis]
+  params['L'] = L * params['nanometers'] #* tf.ones(shape = length_shape, dtype = tf.complex64)
   params['length_min'] = 0.1
   params['length_max'] = 2.0
 
   # RCWA parameters.
-  params['Nx'] = 512 # number of point along x in real-space grid
+  params['Nx'] = Nx # number of point along x in real-space grid
   params['Ny'] = int(np.round(params['Nx'] * params['Ly'] / params['Lx'])) # number of point along y in real-space grid
-  params['PQ'] = [3, 3] # number of spatial harmonics along x and y
+  params['PQ'] = PQ # number of spatial harmonics along x and y
 
   # Coefficient for the argument of tf.math.sigmoid() when generating
   # permittivity distributions with geometric parameters.
@@ -106,8 +155,8 @@ def initialize_params(wavelengths = [632.0],
   params['rectangle_power'] = 200
 
   # Allowed permittivity range.
-  params['eps_min'] = 1.0
-  params['eps_max'] = 100.0
+  params['eps_min'] = eps_min
+  params['eps_max'] = eps_max
 
   # Upsampling for Fourier optics propagation.
   params['upsample'] = 1
@@ -115,6 +164,9 @@ def initialize_params(wavelengths = [632.0],
   # Duty Cycle limits for gratings.
   params['duty_min'] = 0.1
   params['duty_max'] = 0.9
+
+  # Permittivity density blur radius.
+  params['blur_radius'] = blur_radius * params['nanometers']
 
   return params
 
