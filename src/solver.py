@@ -92,7 +92,7 @@ def initialize_params(wavelengths = [632.0],
   params['batchSize'] = len(wavelengths)
   params['pixelsX'] = pixelsX
   params['pixelsY'] = pixelsY
-  params['Nlay'] = 2
+  params['Nlay'] = len(L)
 
   # Simulation tensor shapes.
   batchSize = params['batchSize']
@@ -143,9 +143,12 @@ def initialize_params(wavelengths = [632.0],
   params['length_max'] = 2.0
 
   # RCWA parameters.
-  params['Nx'] = Nx # number of point along x in real-space grid
-  params['Ny'] = int(np.round(params['Nx'] * params['Ly'] / params['Lx'])) # number of point along y in real-space grid
   params['PQ'] = PQ # number of spatial harmonics along x and y
+  params['Nx'] = Nx # number of point along x in real-space grid
+  if params['PQ'][1] == 1:
+    params['Ny'] = 1
+  else:
+    params['Ny'] = int(np.round(params['Nx'] * params['Ly'] / params['Lx'])) # number of point along y in real-space grid
 
   # Coefficient for the argument of tf.math.sigmoid() when generating
   # permittivity distributions with geometric parameters.
@@ -987,9 +990,9 @@ def simulate(ER_t, UR_t, params = initialize_params()):
   q = tf.tile(q, multiples = (1, pixelsX, pixelsY, Nlay, 1, 1))
 
   # Build Kx and Ky matrices
-  kx_zeros = tf.zeros(PQ[0], dtype = tf.complex64)
+  kx_zeros = tf.zeros(PQ[1], dtype = tf.complex64)
   kx_zeros = kx_zeros[tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, :]
-  ky_zeros = tf.zeros(PQ[1], dtype = tf.complex64)
+  ky_zeros = tf.zeros(PQ[0], dtype = tf.complex64)
   ky_zeros = ky_zeros[tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, :, tf.newaxis]
   kx = kinc_x0 - 2 * np.pi * p / (k0 * params['Lx']) - kx_zeros
   ky = kinc_y0 - 2 * np.pi * q / (k0 * params['Ly']) - ky_zeros
@@ -1293,13 +1296,19 @@ def simulate(ER_t, UR_t, params = initialize_params()):
   tz = tf.linalg.matmul(-KZtrn_inv, tz)
 
   ### Step 13: Compute diffraction efficiences ###
-  R2 = tf.abs(rx) ** 2 + tf.abs(ry) ** 2 + tf.abs(rz) ** 2
+  rx2 = tf.math.real(rx) ** 2 + tf.math.imag(rx) ** 2
+  ry2 = tf.math.real(ry) ** 2 + tf.math.imag(ry) ** 2
+  rz2 = tf.math.real(rz) ** 2 + tf.math.imag(rz) ** 2
+  R2 = rx2 + ry2 + rz2
   R = tf.math.real(-KZref / params['ur1']) / tf.math.real(kinc_z0 / params['ur1'])
   R = tf.linalg.matmul(R, R2)
   R = tf.reshape(R, shape = (batchSize, pixelsX, pixelsY, PQ[0], PQ[1]))
   REF = tf.math.reduce_sum(R, axis = [3, 4])
 
-  T2 = tf.abs(tx) ** 2 + tf.abs(ty) ** 2 + tf.abs(tz) ** 2
+  tx2 = tf.math.real(tx) ** 2 + tf.math.imag(tx) ** 2
+  ty2 = tf.math.real(ty) ** 2 + tf.math.imag(ty) ** 2
+  tz2 = tf.math.real(tz) ** 2 + tf.math.imag(tz) ** 2
+  T2 = tx2 + ty2 + tz2
   T = tf.math.real(KZtrn / params['ur2']) / tf.math.real(kinc_z0 / params['ur2'])
   T = tf.linalg.matmul(T, T2)
   T = tf.reshape(T, shape = (batchSize, pixelsX, pixelsY, PQ[0], PQ[1]))
