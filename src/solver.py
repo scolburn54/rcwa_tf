@@ -784,7 +784,7 @@ def generate_arbitrary_epsilon(eps_r, params):
   return ER_t, UR_t
 
 
-def make_propagator(params):
+def make_propagator(params, f):
   '''
     Pre-computes the band-limited angular spectrum propagator for modelling
     free-space propagation for the distance and sampling as specified in `params`.
@@ -822,11 +822,11 @@ def make_propagator(params):
   k_y = tf.tile(k_y, multiples = (batchSize, 1, 1))
   k_z_arg = tf.square(k) - (tf.square(k_x) + tf.square(k_y))
   k_z = tf.sqrt(k_z_arg)
-  propagator_arg = 1j * k_z * params['f']
+  propagator_arg = 1j * k_z * f #params['f']
   propagator = tf.exp(propagator_arg)
 
   # Limit transfer function bandwidth to prevent aliasing.
-  kx_limit = 2 * np.pi * (((1 / (pixelsX * params['Lx'])) * params['f']) ** 2 + 1) ** (-0.5) / params['lam0'][:, 0, 0, 0, 0, 0]
+  kx_limit = 2 * np.pi * (((1 / (pixelsX * params['Lx'])) * f) ** 2 + 1) ** (-0.5) / params['lam0'][:, 0, 0, 0, 0, 0]
   kx_limit = tf.cast(kx_limit, dtype = tf.complex64)
   ky_limit = kx_limit
   kx_limit = kx_limit[:, tf.newaxis, tf.newaxis]
@@ -840,7 +840,7 @@ def make_propagator(params):
   return propagator
 
 
-def propagate(field, params):
+def propagate(field, propagator, upsample):
   '''
     Propagates a batch of input fields to a parallel output plane using the 
     band-limited angular spectrum method.
@@ -858,12 +858,13 @@ def propagate(field, params):
   '''
 
   # Retrieve the pre-computed reciprocal space propagator.
-  propagator = params['propagator']
+  #propagator = params['propagator']
 
   # Zero pad `field` to be a stack of 2n-1 x 2n-1 matrices
   # Put batch parameter last for padding then transpose back.
   _, _, m = field.shape
-  n = params['upsample'] * m
+  #n = params['upsample'] * m
+  n = upsample * m
   field = tf.transpose(field, perm = [1, 2, 0])
   field_real = tf.math.real(field)
   field_imag = tf.math.imag(field)
