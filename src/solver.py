@@ -1224,7 +1224,7 @@ def simulate(ER_t, UR_t, params = initialize_params()):
 
   # Compute mode coefficients of the source.
   delta = np.zeros((batchSize, pixelsX, pixelsY, np.prod(PQ)))
-  delta[:, :, :, int(np.round(np.prod(PQ) / 2.0))] = 1
+  delta[:, :, :, int(np.prod(PQ) / 2.0)] = 1
 
   # Incident wavevector.
   kinc_x0_pol = tf.math.real(kinc_x0[:, :, :, 0, 0])
