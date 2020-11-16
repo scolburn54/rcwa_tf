@@ -791,6 +791,9 @@ def make_propagator(params, f):
 
     Args:
         params: A `dict` containing simulation and optimization settings.
+
+        f: A `float` specifying the focal length, or distance to propagate, in
+        meters.
     Returns:
         propagator: a `tf.Tensor` of shape `(batchSize, params['upsample'] * pixelsX,
         params['upsample'] * pixelsY)` and dtype `tf.complex64` defining the 
@@ -851,6 +854,9 @@ def propagate(field, propagator, upsample):
         input electric fields to be diffracted to the output plane.
 
         params: A `dict` containing simulation and optimization settings.
+
+        upsample: An odd-valued `int` specifying the factor by which the
+        transverse field data stored in `field` should be upsampled.
     Returns:
         out: A `tf.Tensor` of shape `(batchSize, params['upsample'] * pixelsX,
         params['upsample'] * pixelsY)` and dtype `tf.complex64` specifying the 
