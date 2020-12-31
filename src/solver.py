@@ -529,11 +529,8 @@ def generate_cylindrical_nanoposts(duty, params):
     centered circular cross section scatterer.
 
     Args:
-        r_x: A `tf.Tensor` of shape `(1, pixelsX, pixelsY, 1)` specifying the 
-        x-axis diameter of the circle.
-
-        r_x: A `tf.Tensor` of shape `(1, pixelsX, pixelsY, 1)` specifying the 
-        y-axis diameter of the circle.
+        duty: A `tf.Tensor` of shape `(1, pixelsX, pixelsY, 1)` specifying the 
+        duty cycle (diameter / period) of the cylindrical nanopost.
 
         params: A `dict` containing simulation and optimization settings.
     Returns:
@@ -735,6 +732,76 @@ def generate_rectangular_lines(duty, params):
   return ER_t, UR_t
 
 
+def generate_plasmonic_cylindrical_nanoposts(duty, params):
+  '''
+    Generates permittivity/permeability for a unit cell comprising a single, 
+    centered circular cross section plasmonic scatterer with a complex-valued
+    permittivity.
+
+    Args:
+        duty: A `tf.Tensor` of shape `(1, pixelsX, pixelsY, 1)` specifying the 
+        duty cycle (diameter / period) of the cylindrical nanopost.
+
+        params: A `dict` containing simulation and optimization settings.
+    Returns:
+        ER_t: A `tf.Tensor` of shape `(batchSize, pixelsX, pixelsY, Nlayer, Nx, Ny)`
+        specifying the relative permittivity distribution of the unit cell.
+
+        UR_t: A `tf.Tensor` of shape `(batchSize, pixelsX, pixelsY, Nlayer, Nx, Ny)`
+        specifying the relative permeability distribution of the unit cell.
+  '''
+
+  # Retrieve simulation size parameters.
+  batchSize = params['batchSize']
+  pixelsX = params['pixelsX']
+  pixelsY = params['pixelsY']
+  Nlay = params['Nlay']
+  Nx = params['Nx']
+  Ny = params['Ny']
+
+  # Initialize relative permeability.
+  materials_shape = (batchSize, pixelsX, pixelsY, Nlay, Nx, Ny)
+  UR = params['urd'] * np.ones(materials_shape)
+
+  # Define the cartesian cross section.
+  dx = params['Lx'] / Nx # grid resolution along x
+  dy = params['Ly'] / Ny # grid resolution along y
+  xa = np.linspace(0, Nx - 1, Nx) * dx # x axis array
+  xa = xa - np.mean(xa) # center x axis at zero
+  ya = np.linspace(0, Ny - 1, Ny) * dy # y axis vector
+  ya = ya - np.mean(ya) # center y axis at zero
+  [y_mesh, x_mesh] = np.meshgrid(ya,xa)
+
+  # Convert to tensors and expand and tile to match the simulation shape.
+  y_mesh = tf.convert_to_tensor(y_mesh, dtype = tf.float32)
+  y_mesh = y_mesh[tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, :, :]
+  y_mesh = tf.tile(y_mesh, multiples = (batchSize, pixelsX, pixelsY, 1, 1, 1))
+  x_mesh = tf.convert_to_tensor(x_mesh, dtype = tf.float32)
+  x_mesh = x_mesh[tf.newaxis, tf.newaxis, tf.newaxis, tf.newaxis, :, :]
+  x_mesh = tf.tile(x_mesh, multiples = (batchSize, pixelsX, pixelsY, 1, 1, 1))
+
+  # Build device layer.
+  a = tf.clip_by_value(duty, clip_value_min = params['duty_min'], clip_value_max = params['duty_max'])
+  a = a[:, :, :, tf.newaxis, tf.newaxis, tf.newaxis]
+  a = tf.tile(a, multiples = (1, 1, 1, 1, Nx, Ny))
+  radius = 0.5 * params['Ly'] * a
+  sigmoid_arg = (1 - (x_mesh / radius) ** 2 - (y_mesh / radius) ** 2)
+  ER_t = tf.math.sigmoid(params['sigmoid_coeff'] * sigmoid_arg)
+  ER_t = tf.cast(ER_t, dtype = tf.complex64)
+  ER_t = 1 + (params['erd'] - 1) * ER_t
+
+  # Build substrate and concatenate along the layers dimension.
+  device_shape = (batchSize, pixelsX, pixelsY, 1, Nx, Ny)
+  ER_substrate = params['ers'] * tf.ones(device_shape, dtype = tf.complex64)
+  ER_t = tf.concat(values = [ER_t, ER_substrate], axis = 3)
+
+  # Cast to complex for subsequent calculations.
+  UR_t = tf.convert_to_tensor(UR, dtype = tf.float32)
+  UR_t = tf.cast(UR_t, dtype = tf.complex64)
+
+  return ER_t, UR_t
+
+
 def generate_arbitrary_epsilon(eps_r, params):
   '''
     Generates permittivity/permeability for a unit cell comprising a continuously
@@ -825,7 +892,7 @@ def make_propagator(params, f):
   k_y = tf.tile(k_y, multiples = (batchSize, 1, 1))
   k_z_arg = tf.square(k) - (tf.square(k_x) + tf.square(k_y))
   k_z = tf.sqrt(k_z_arg)
-  propagator_arg = 1j * k_z * f #params['f']
+  propagator_arg = 1j * k_z * f
   propagator = tf.exp(propagator_arg)
 
   # Limit transfer function bandwidth to prevent aliasing.
@@ -853,7 +920,9 @@ def propagate(field, propagator, upsample):
         params['upsample'] * pixelsY)` and dtype `tf.complex64` specifying the 
         input electric fields to be diffracted to the output plane.
 
-        params: A `dict` containing simulation and optimization settings.
+        propagator: a `tf.Tensor` of shape `(batchSize, params['upsample'] * pixelsX,
+        params['upsample'] * pixelsY)` and dtype `tf.complex64` defining the 
+        reciprocal space, band-limited angular spectrum propagator.
 
         upsample: An odd-valued `int` specifying the factor by which the
         transverse field data stored in `field` should be upsampled.
@@ -863,13 +932,9 @@ def propagate(field, propagator, upsample):
         the electric fields at the output plane.
   '''
 
-  # Retrieve the pre-computed reciprocal space propagator.
-  #propagator = params['propagator']
-
   # Zero pad `field` to be a stack of 2n-1 x 2n-1 matrices
   # Put batch parameter last for padding then transpose back.
   _, _, m = field.shape
-  #n = params['upsample'] * m
   n = upsample * m
   field = tf.transpose(field, perm = [1, 2, 0])
   field_real = tf.math.real(field)
