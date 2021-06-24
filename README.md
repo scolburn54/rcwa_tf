@@ -5,7 +5,7 @@ At the core of the code is the base tensor shape *`(batchSize,  pixelsX, pixelsY
 
 For additional details, please refer to our publication discussing this work:
 
-https://arxiv.org/abs/2011.03626
+https://doi.org/10.1038/s42005-021-00568-6
 
 ### Using the Solver
 To run your own code based on *rcwa_tf*, ensure you have either placed the files located within the *src/* folder in the same directory, have added the *src/* folder to your *PYTHONPATH* environment variable, or if one prefers, they may add the additional lines prior to the import statements in their own code:
